@@ -20,7 +20,7 @@ apt install -y python3 python3-flask lxc
 python3 lwp.py
 ```
 
-Listen address and port are in `lwp.conf` (default `0.0.0.0:5000`).
+Listen address, port, and `secret_key` are in `lwp.conf` (default `0.0.0.0:5000`). Change `secret_key` on each install.
 
 ## Update
 
