@@ -1,4 +1,4 @@
-LXC-Web-Panel
+LXC-Web
 =============
 
 > **Fork notice:** This project is a fork of
