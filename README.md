@@ -7,3 +7,7 @@ LXC-Web
 > Changes here (Python 3, current LXC, and UI updates) are maintained independently
 > and are not part of the original project.
 
+
+
+Connect you on http://your_ip_address:5000/
+Login with user admin and password admin
