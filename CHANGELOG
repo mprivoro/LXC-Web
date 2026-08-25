@@ -1,5 +1,30 @@
+## Version 1.0
+## 2026-08-25
+
+Fork of [lxc-webpanel/LXC-Web-Panel](https://github.com/lxc-webpanel/LXC-Web-Panel) (archived 2020).
+Maintained independently as LXC-Web.
+
++ Python 3 support for the panel on current Ubuntu/LXC
++ Read modern LXC config keys (`lxc.net.0.*`, `lxc.uts.name`, `lxc.rootfs.path`) as well as the old 0.8/0.9 names
++ Allow duplicate keys in container configs (`lxc.include` and similar); Python 3 ConfigParser no longer crashes after login
++ Memory usage on cgroup v2 via `memory.current` (fallback to `memory.usage_in_bytes`)
++ Host distro from `/etc/os-release` (`platform.linux_distribution()` was removed in Python 3.8)
++ Wider layout: page uses the browser width instead of Bootstrap 2's 940px box (`static/css/lwp.css`)
++ `secret_key` is configurable in `lwp.conf` (`[session]`) instead of a hardcoded Flask secret
++ Serve jQuery 1.9.1 from `static/js/` (no Google CDN)
++ Autostart detection via `lxc.start.auto`
+
+* Version check no longer contacts lxc-webpanel.github.io; About shows the local `version` file only
+* Dropped html5shim and other third-party script URLs from templates
+* About page and footer rebranded as LXC-Web; MIT copyright for 2013 and 2026 kept in `LICENSE`
+* README rewritten: clone, install, run, update, default URL and admin login
+* Removed unused `static/css/bootstrap-select.min.css` (GitHub HTML dump) and `templates/includes/modals.html`
+* Removed unused `/_check_version` route
+
 ## Version 0.2 beta
 ## 2013-04-30
+
+Upstream LXC Web Panel.
 
 + Instant push memory and CPU options to cgroup values
 + Added partition option in the config file, you can choose which partition you want to monitor in the overview

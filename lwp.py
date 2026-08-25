@@ -869,12 +869,6 @@ def refresh_memory_containers(name=None):
         return jsonify({'memusg': lwp.memory_usage(name)})
 
 
-@app.route('/_check_version')
-def check_version():
-    if 'logged_in' in session:
-        return jsonify(lwp.check_version())
-
-
 def hash_passwd(passwd):
     return hashlib.sha512(passwd.encode()).hexdigest()
 
