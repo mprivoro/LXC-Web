@@ -43,6 +43,10 @@
   width: 100% !important;
 }
 
+.table .label {
+  margin: 1px 3px;
+}
+
 @media (max-width: 767px) {
   .container,
   .navbar-static-top .container,

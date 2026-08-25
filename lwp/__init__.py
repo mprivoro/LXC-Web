@@ -212,7 +212,7 @@ def memory_usage(name):
                 stderr=subprocess.DEVNULL,
                 universal_newlines=True).splitlines()
             if out:
-                return int(out[0]) / 1024 / 1024
+                return int(int(out[0]) / 1024 / 1024)
         except (subprocess.CalledProcessError, ValueError, OSError):
             continue
     return 0
@@ -299,9 +299,9 @@ def host_uptime():
     '''
     f = open('/proc/uptime')
     uptime = int(f.readlines()[0].split('.')[0])
-    minutes = uptime / 60 % 60
-    hours = uptime / 60 / 60 % 24
-    days = uptime / 60 / 60 / 24
+    minutes = int(uptime / 60) % 60
+    hours = int(uptime / 3600) % 24
+    days = float('%.2f' % (uptime / 86400.0))
     f.close()
     return {'day': days,
             'time': '%d:%02d' % (hours, minutes)}

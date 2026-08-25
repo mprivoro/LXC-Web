@@ -28,6 +28,7 @@
 
 import subprocess
 import os
+import re
 
 
 def _run(cmd):
@@ -127,6 +128,46 @@ def ip_address(container, assume_running=False):
     except:
         pass
     return '' 
+
+
+def snapshots(container):
+    '''
+    List LXC snapshots for a container.
+    Returns a list of dicts: name, path, created.
+    '''
+
+    if not exists(container):
+        raise ContainerDoesntExists(
+            'Container {} does not exist!'.format(container))
+
+    try:
+        out = subprocess.check_output(
+            ['lxc-snapshot', '-L', '-n', container],
+            stderr=subprocess.DEVNULL,
+            universal_newlines=True)
+    except (subprocess.CalledProcessError, OSError):
+        return []
+
+    snaps = []
+    for line in out.splitlines():
+        line = line.strip()
+        if not line or line.lower() == 'no snapshots':
+            continue
+        match = re.match(r'^(\S+)\s+\(([^)]*)\)\s+(\S+)(?:\s+(\S+))?', line)
+        if not match:
+            snaps.append({'name': line.split()[0], 'path': '', 'created': ''})
+            continue
+        created = match.group(3)
+        if match.group(4):
+            created = '%s %s' % (created.replace(':', '-', 2), match.group(4))
+        else:
+            created = created.replace(':', '-', 2)
+        snaps.append({
+            'name': match.group(1),
+            'path': match.group(2),
+            'created': created,
+        })
+    return snaps
 
 
 def ls():

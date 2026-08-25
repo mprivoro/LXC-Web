@@ -42,6 +42,7 @@
 				<th>Hostname</th>
 				<th>IP Address</th>
 				<th>Mem. usage</th>
+				<th>Snapshots</th>
 				<th>Actions</th>
 			</tr>
 		</thead>	
@@ -54,6 +55,15 @@
 						<td>{{container.settings.utsname}}</td>
 						<td>{% if container.settings.flags == 'up' %}{% if container.settings.ipv4 != '' %}{{container.settings.ipv4}}{% else %}Undefined{% endif %}{% elif container.settings.flags == 'down' %}Link Down{% endif %}</td>
 						<td id="{{container.name}}">{{ render_memory_wrapper(container.memusg) }}</td>
+						<td>
+							{% if container.snapshots %}
+								{% for snap in container.snapshots %}
+									<span class="label" title="{{ snap.created }}{% if snap.path %} — {{ snap.path }}{% endif %}">{{ snap.name }}</span>
+								{% endfor %}
+							{% else %}
+								<span class="muted">—</span>
+							{% endif %}
+						</td>
 						<td>
 							<div class="btn-toolbar" style="margin:8px 0;">
 								<div class="btn-group">
@@ -124,7 +134,7 @@
 					data = data.data;
 					for (i in data) {
 						var el = $('#'+data[i].name+' span');
-						el.text(data[i].memusg+' MB');
+						el.text(Math.round(data[i].memusg)+' MB');
 						el[0].className = el[0].className.replace(/label\-(success|warning|important)/g,'label-'+memory_color(data[i].memusg));
 					}
 				});

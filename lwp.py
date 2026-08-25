@@ -111,7 +111,8 @@ def home():
                 containers_by_status.append({
                     'name': container,
                     'memusg': lwp.memory_usage(container),
-                    'settings': settings
+                    'settings': settings,
+                    'snapshots': lxc.snapshots(container)
                 })
             containers_all.append({
                 'status': status.lower(),

@@ -159,7 +159,7 @@
 			function refreshMemory(container){
 				$.getJSON($SCRIPT_ROOT + '/_refresh_memory_' + container, function(data) {
 					var el = $('#'+container+' span');
-					el.text(data.memusg+' MB');
+					el.text(Math.round(data.memusg)+' MB');
 					el[0].className = el[0].className.replace(/label\-(success|warning|important)/g,'label-'+memory_color(data.memusg));
 				});
 			}
