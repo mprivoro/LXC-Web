@@ -39,11 +39,6 @@ import time
 from io import StringIO
 
 try:
-    from urllib.request import urlopen
-except ImportError:
-    from urllib2 import urlopen
-
-try:
     import configparser
 except ImportError:
     import ConfigParser as configparser
@@ -366,28 +361,12 @@ def get_templates_list():
 
 def check_version():
     '''
-    returns latest LWP version (dict with current and latest)
+    returns the local LWP version (no remote lookup)
     '''
     with open('version') as f:
         current = float(f.read().strip())
-
-    latest = current
-    urls = (
-        'https://lxc-webpanel.github.io/version',
-        'http://lxc-webpanel.github.io/version',
-        'http://lxc-webpanel.github.com/version',
-    )
-    for url in urls:
-        try:
-            raw = urlopen(url, timeout=3).read()
-            if isinstance(raw, bytes):
-                raw = raw.decode('utf-8', 'ignore')
-            latest = float(raw.strip())
-            break
-        except Exception:
-            continue
     return {'current': current,
-            'latest': latest}
+            'latest': current}
 
 def get_net_settings_fname():
     filename = '/etc/default/lxc-net'
