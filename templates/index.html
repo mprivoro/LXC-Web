@@ -12,22 +12,22 @@
 
 	<div class="hero-unit">
 		{% if dist == 'Unknown' %}<div class="alert alert-error">LXC Web Panel is optimized for Ubuntu 12.10 !</div>{% endif %}
-		<div class="row">
-			<div class="span3" style="margin-left:20px;">
+		<div class="row-fluid">
+			<div class="span4">
 				<h3>{{ dist }} (host)</h3>
 				<p>CPU usage : <span id="cpu-usage" class="hide"></span></p>
-				<div class="progress" style="width:250px;">
+				<div class="progress">
 					<div class="bar" id="cpu-usage-bar" style="width:0%;"></div>
 				</div>
 				<p>Memory usage : <span id="memory-usage" class="hide"></span></p>
-				<div class="progress" style="width:250px;">
+				<div class="progress">
 					<div class="bar" id="memory-usage-bar" style="width: 0%;"></div>
 					<abbr title="Cached memory"><div class="bar bar-success" id="memory-cache-usage-bar" style="width: 0%;"></div></abbr>
 				</div>
 			</div>
-			<div class="span3" style="margin-top:29px; margin-left:20px;">
+			<div class="span4" style="margin-top:29px;">
 				<p>Disk usage : <span id="disk-usage" class="hide"></span></p>
-				<div class="progress" style="width:250px;">
+				<div class="progress">
 					<div class="bar" id="disk-usage-bar" style="width: 0%;"></div>
 				</div>
 				<p>Uptime : <span id="uptime" class="hide"></span></p>

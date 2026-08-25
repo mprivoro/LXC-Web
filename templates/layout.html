@@ -9,8 +9,8 @@
 
 		<link href="{{ url_for('static', filename='css/bootstrap.css') }}" rel="stylesheet">
 		<link href="{{ url_for('static', filename='css/bootstrap-responsive.min.css') }}" rel="stylesheet">
-
 		<link href="{{ url_for('static', filename='css/bootstrapSwitch.css') }}" rel="stylesheet">
+		<link href="{{ url_for('static', filename='css/lwp.css') }}?v=3" rel="stylesheet">
 
 		<style type="text/css">
 			html, body {height: 100%;}
@@ -26,7 +26,6 @@
 			.fix-height {line-height: 30px; min-height: 30px; height: 30px;}
 			#wrap {min-height: 100%;height: auto !important;height: 100%;margin: 0 auto -60px;}
 			#push, #footer {height: 60px;}
-			#wrap > .container {padding-top: 60px;}
 			.container .credit {margin: 20px 0;}
 		</style>
 		
@@ -46,7 +45,7 @@
 
 		
 			<div class="container">
-				<div class="row">
+				<div class="row-fluid">
 					{% if session.logged_in %}
 						{% include "includes/aside.html" %}
 					{% endif %}

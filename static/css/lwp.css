@@ -1,0 +1,62 @@
+/* LXC Web Panel layout: use the full browser width (Bootstrap 2 is 940/1170px). */
+
+.container,
+.navbar-static-top .container,
+.navbar-fixed-top .container,
+.navbar-fixed-bottom .container {
+  width: auto !important;
+  max-width: none !important;
+  margin-left: 24px !important;
+  margin-right: 24px !important;
+}
+
+#wrap > .container {
+  padding-top: 60px;
+}
+
+.row-fluid {
+  width: 100% !important;
+}
+
+/* Sidebar stays a column; main content grows with the window. */
+#wrap > .container > .row-fluid > .span3:first-child {
+  width: 16% !important;
+  margin-left: 0 !important;
+}
+
+#wrap > .container > .row-fluid > .span9 {
+  width: 82% !important;
+  margin-left: 2% !important;
+}
+
+#wrap > .container > .row-fluid > .span6 {
+  width: 54% !important;
+  margin-left: 2% !important;
+}
+
+#wrap > .container > .row-fluid > .span7 {
+  width: 64% !important;
+  margin-left: 2% !important;
+}
+
+.table {
+  width: 100% !important;
+}
+
+@media (max-width: 767px) {
+  .container,
+  .navbar-static-top .container,
+  .navbar-fixed-top .container,
+  .navbar-fixed-bottom .container {
+    margin-left: 10px !important;
+    margin-right: 10px !important;
+  }
+
+  #wrap > .container > .row-fluid > .span3:first-child,
+  #wrap > .container > .row-fluid > .span6,
+  #wrap > .container > .row-fluid > .span7,
+  #wrap > .container > .row-fluid > .span9 {
+    width: 100% !important;
+    margin-left: 0 !important;
+  }
+}

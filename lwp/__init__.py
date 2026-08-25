@@ -68,11 +68,88 @@ cgroup['shares'] = 'lxc.cgroup.cpu.shares'
 cgroup['deny'] = 'lxc.cgroup.devices.deny'
 cgroup['allow'] = 'lxc.cgroup.devices.allow'
 
+# LXC 1.0+ renamed several keys. Try legacy names first, then current ones.
+SETTING_KEYS = {
+    'type': (cgroup['type'], 'lxc.net.0.type'),
+    'link': (cgroup['link'], 'lxc.net.0.link'),
+    'flags': (cgroup['flags'], 'lxc.net.0.flags'),
+    'hwaddr': (cgroup['hwaddr'], 'lxc.net.0.hwaddr'),
+    'rootfs': (cgroup['rootfs'], 'lxc.rootfs.path'),
+    'utsname': (cgroup['utsname'], 'lxc.uts.name'),
+    'arch': (cgroup['arch'],),
+    'ipv4': (cgroup['ipv4'], 'lxc.net.0.ipv4', 'lxc.net.0.ipv4.address'),
+    'memlimit': (cgroup['memlimit'],),
+    'swlimit': (cgroup['swlimit'],),
+    'cpus': (cgroup['cpus'],),
+    'shares': (cgroup['shares'],),
+}
+
+# Keys that commonly appear more than once in a container config.
+REPEATABLE_KEYS = (
+    'lxc.include',
+    cgroup['deny'],
+    cgroup['allow'],
+    'lxc.mount.entry',
+)
+
 
 def FakeSection(fp):
     content = u"[DEFAULT]\n%s" % fp.read()
 
     return StringIO(content)
+
+
+def _make_parser():
+    '''
+    LXC configs are not INI files: they have no sections and often repeat
+    keys such as lxc.include. Python 3 ConfigParser rejects duplicates
+    unless strict=False.
+    '''
+    try:
+        parser = configparser.RawConfigParser(strict=False,
+                                              interpolation=None)
+    except TypeError:
+        parser = configparser.RawConfigParser()
+    parser.optionxform = str
+    return parser
+
+
+def _load_unsectioned(filename):
+    parser = _make_parser()
+    with open(filename) as fp:
+        wrapped = FakeSection(fp)
+    if hasattr(parser, 'read_file'):
+        parser.read_file(wrapped, source=filename)
+    else:
+        parser.readfp(wrapped)
+    return parser
+
+
+def _config_get(config, keys, default=''):
+    if isinstance(keys, str):
+        keys = (keys,)
+    for key in keys:
+        try:
+            return config.get('DEFAULT', key)
+        except (configparser.NoOptionError, configparser.NoSectionError):
+            continue
+    return default
+
+
+def _resolve_config_key(config, key):
+    '''Use the key already present in the file, else the modern alias.'''
+    aliases = SETTING_KEYS.get(key)
+    if aliases is None:
+        for names in SETTING_KEYS.values():
+            if key in names:
+                aliases = names
+                break
+    if aliases is None:
+        aliases = (key,)
+    for alias in aliases:
+        if config.has_option('DEFAULT', alias):
+            return alias
+    return aliases[-1]
 
 
 def DelSection(filename=None):
@@ -113,6 +190,10 @@ def ls_auto():
     return auto_list
 
 
+def _is_cgroup_v2():
+    return os.path.exists('/sys/fs/cgroup/cgroup.controllers')
+
+
 def memory_usage(name):
     '''
     returns memory usage in MB
@@ -124,13 +205,22 @@ def memory_usage(name):
     if name in stopped():
         return 0
 
-    cmd = ['lxc-cgroup -n %s memory.usage_in_bytes' % name]
-    try:
-        out = subprocess.check_output(cmd, shell=True,
-                                      universal_newlines=True).splitlines()
-    except:
-        return 0
-    return int(out[0])/1024/1024
+    # cgroup v2: memory.current; cgroup v1: memory.usage_in_bytes
+    keys = ('memory.current', 'memory.usage_in_bytes')
+    if not _is_cgroup_v2():
+        keys = ('memory.usage_in_bytes', 'memory.current')
+
+    for key in keys:
+        try:
+            out = subprocess.check_output(
+                ['lxc-cgroup', '-n', name, key],
+                stderr=subprocess.DEVNULL,
+                universal_newlines=True).splitlines()
+            if out:
+                return int(out[0]) / 1024 / 1024
+        except (subprocess.CalledProcessError, ValueError, OSError):
+            continue
+    return 0
 
 
 def host_memory_usage():
@@ -226,9 +316,33 @@ def check_ubuntu():
     '''
     return the System version
     '''
-    dist = '%s %s' % (platform.linux_distribution()[0],
-                      platform.linux_distribution()[1])
-    return dist
+    info = {}
+    try:
+        info = platform.freedesktop_os_release()
+    except AttributeError:
+        try:
+            with open('/etc/os-release') as f:
+                for line in f:
+                    line = line.strip()
+                    if not line or line.startswith('#') or '=' not in line:
+                        continue
+                    key, val = line.split('=', 1)
+                    info[key] = val.strip().strip('"')
+        except (IOError, OSError):
+            pass
+    except OSError:
+        pass
+
+    if info:
+        name = info.get('NAME') or info.get('ID') or 'Unknown'
+        version = info.get('VERSION_ID') or info.get('VERSION') or ''
+        return ('%s %s' % (name, version)).strip()
+
+    try:
+        dist = platform.linux_distribution()
+        return ('%s %s' % (dist[0], dist[1])).strip() or 'Unknown'
+    except AttributeError:
+        return 'Unknown'
 
 
 def get_templates_list():
@@ -254,10 +368,24 @@ def check_version():
     '''
     returns latest LWP version (dict with current and latest)
     '''
-    f = open('version')
-    current = float(f.read())
-    f.close()
-    latest = float(urlopen('http://lxc-webpanel.github.com/version').read())
+    with open('version') as f:
+        current = float(f.read().strip())
+
+    latest = current
+    urls = (
+        'https://lxc-webpanel.github.io/version',
+        'http://lxc-webpanel.github.io/version',
+        'http://lxc-webpanel.github.com/version',
+    )
+    for url in urls:
+        try:
+            raw = urlopen(url, timeout=3).read()
+            if isinstance(raw, bytes):
+                raw = raw.decode('utf-8', 'ignore')
+            latest = float(raw.strip())
+            break
+        except Exception:
+            continue
     return {'current': current,
             'latest': latest}
 
@@ -278,9 +406,8 @@ def get_net_settings():
     if not filename:
         return False
 
-    config = configparser.SafeConfigParser()
+    config = _load_unsectioned(filename)
     cfg = {}
-    config.readfp(FakeSection(open(filename)))
     cfg['use'] = config.get('DEFAULT', 'USE_LXC_BRIDGE').strip('"')
     cfg['bridge'] = config.get('DEFAULT', 'LXC_BRIDGE').strip('"')
     cfg['address'] = config.get('DEFAULT', 'LXC_ADDR').strip('"')
@@ -303,64 +430,28 @@ def get_container_settings(name):
 
     if not file_exist(filename):
         return False
-    config = configparser.SafeConfigParser()
+    config = _load_unsectioned(filename)
     cfg = {}
-    config.readfp(FakeSection(open(filename)))
-    try:
-        cfg['type'] = config.get('DEFAULT', cgroup['type'])
-    except configparser.NoOptionError:
-        cfg['type'] = ''
-    try:
-        cfg['link'] = config.get('DEFAULT', cgroup['link'])
-    except configparser.NoOptionError:
-        cfg['link'] = ''
-    try:
-        cfg['flags'] = config.get('DEFAULT', cgroup['flags'])
-    except configparser.NoOptionError:
-        cfg['flags'] = ''
-    try:
-        cfg['hwaddr'] = config.get('DEFAULT', cgroup['hwaddr'])
-    except configparser.NoOptionError:
-        cfg['hwaddr'] = ''
-    try:
-        cfg['rootfs'] = config.get('DEFAULT', cgroup['rootfs'])
-    except configparser.NoOptionError:
-        cfg['rootfs'] = ''
-    try:
-        cfg['utsname'] = config.get('DEFAULT', cgroup['utsname'])
-    except configparser.NoOptionError:
-        cfg['utsname'] = ''
-    try:
-        cfg['arch'] = config.get('DEFAULT', cgroup['arch'])
-    except configparser.NoOptionError:
-        cfg['arch'] = ''
-    try:
-        cfg['ipv4'] = config.get('DEFAULT', cgroup['ipv4'])
-    except configparser.NoOptionError:
-        cfg['ipv4'] = ''
-    try:
-        cfg['memlimit'] = re.sub(r'[a-zA-Z]', '',
-                                 config.get('DEFAULT', cgroup['memlimit']))
-    except configparser.NoOptionError:
-        cfg['memlimit'] = ''
-    try:
-        cfg['swlimit'] = re.sub(r'[a-zA-Z]', '',
-                                config.get('DEFAULT', cgroup['swlimit']))
-    except configparser.NoOptionError:
-        cfg['swlimit'] = ''
-    try:
-        cfg['cpus'] = config.get('DEFAULT', cgroup['cpus'])
-    except configparser.NoOptionError:
-        cfg['cpus'] = ''
-    try:
-        cfg['shares'] = config.get('DEFAULT', cgroup['shares'])
-    except configparser.NoOptionError:
-        cfg['shares'] = ''
+    cfg['type'] = _config_get(config, SETTING_KEYS['type'])
+    cfg['link'] = _config_get(config, SETTING_KEYS['link'])
+    cfg['flags'] = _config_get(config, SETTING_KEYS['flags'])
+    cfg['hwaddr'] = _config_get(config, SETTING_KEYS['hwaddr'])
+    cfg['rootfs'] = _config_get(config, SETTING_KEYS['rootfs'])
+    cfg['utsname'] = _config_get(config, SETTING_KEYS['utsname'])
+    cfg['arch'] = _config_get(config, SETTING_KEYS['arch'])
+    cfg['ipv4'] = _config_get(config, SETTING_KEYS['ipv4'])
+    memlimit = _config_get(config, SETTING_KEYS['memlimit'])
+    cfg['memlimit'] = re.sub(r'[a-zA-Z]', '', memlimit) if memlimit else ''
+    swlimit = _config_get(config, SETTING_KEYS['swlimit'])
+    cfg['swlimit'] = re.sub(r'[a-zA-Z]', '', swlimit) if swlimit else ''
+    cfg['cpus'] = _config_get(config, SETTING_KEYS['cpus'])
+    cfg['shares'] = _config_get(config, SETTING_KEYS['shares'])
 
-    if '%s.conf' % name in ls_auto():
+    auto = _config_get(config, ('lxc.start.auto',))
+    if auto.strip() in ('1', 'true', 'yes'):
         cfg['auto'] = True
     else:
-        cfg['auto'] = False
+        cfg['auto'] = '%s.conf' % name in ls_auto()
 
     return cfg
 
@@ -372,14 +463,13 @@ def push_net_value(key, value):
     filename = get_net_settings_fname()
 
     if filename:
-        config = configparser.RawConfigParser()
-        config.readfp(FakeSection(open(filename)))
+        config = _load_unsectioned(filename)
         if not value:
             config.remove_option('DEFAULT', key)
         else:
             config.set('DEFAULT', key, value)
 
-        with open(filename, 'wb') as configfile:
+        with open(filename, 'w') as configfile:
             config.write(configfile)
 
         DelSection(filename=filename)
@@ -407,26 +497,20 @@ def push_config_value(key, value, container=None):
     replace a var in a container config file
     '''
 
-    def save_cgroup_devices(filename=None):
+    def save_repeatable_options(filename=None):
         '''
-        returns multiple values (lxc.cgroup.devices.deny and
-        lxc.cgroup.devices.allow) in a list because configparser cannot
-        make this...
+        ConfigParser collapses duplicate keys. Keep the original lines for
+        options that LXC repeats (lxc.include, devices, mount entries).
         '''
         if filename:
             values = []
-            i = 0
-
-            load = open(filename, 'r')
-            read = load.readlines()
-            load.close()
-
-            while i < len(read):
-                if not read[i].startswith('#') and \
-                        re.match('lxc.cgroup.devices.deny|'
-                                 'lxc.cgroup.devices.allow', read[i]):
-                    values.append(read[i])
-                i += 1
+            with open(filename, 'r') as load:
+                for line in load:
+                    stripped = line.lstrip()
+                    if stripped.startswith('#'):
+                        continue
+                    if any(stripped.startswith(k) for k in REPEATABLE_KEYS):
+                        values.append(line)
             return values
 
     if container:
@@ -436,25 +520,24 @@ def push_config_value(key, value, container=None):
         else:
             filename = '/var/lib/lxc/%s/config' % container
 
-        save = save_cgroup_devices(filename=filename)
+        save = save_repeatable_options(filename=filename)
 
-        config = configparser.RawConfigParser()
-        config.readfp(FakeSection(open(filename)))
+        config = _load_unsectioned(filename)
+        write_key = _resolve_config_key(config, key)
         if not value:
-            config.remove_option('DEFAULT', key)
+            if config.has_option('DEFAULT', write_key):
+                config.remove_option('DEFAULT', write_key)
         elif key == cgroup['memlimit'] or key == cgroup['swlimit'] \
                 and value is not False:
-            config.set('DEFAULT', key, '%sM' % value)
+            config.set('DEFAULT', write_key, '%sM' % value)
         else:
-            config.set('DEFAULT', key, value)
+            config.set('DEFAULT', write_key, value)
 
-        # Bugfix (can't duplicate keys with config parser)
-        if config.has_option('DEFAULT', cgroup['deny']) or \
-                config.has_option('DEFAULT', cgroup['allow']):
-            config.remove_option('DEFAULT', cgroup['deny'])
-            config.remove_option('DEFAULT', cgroup['allow'])
+        for repeatable in REPEATABLE_KEYS:
+            if config.has_option('DEFAULT', repeatable):
+                config.remove_option('DEFAULT', repeatable)
 
-        with open(filename, 'wb') as configfile:
+        with open(filename, 'w') as configfile:
             config.write(configfile)
 
         DelSection(filename=filename)
