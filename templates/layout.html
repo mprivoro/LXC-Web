@@ -29,9 +29,6 @@
 			.container .credit {margin: 20px 0;}
 		</style>
 		
-		<!--[if lt IE 9]>
-			<script src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
-		<![endif]-->
 		<link rel="shortcut icon" href="{{ url_for('static', filename='ico/favicon.ico') }}">
 
 	</head>
@@ -70,7 +67,7 @@
 
 		<div id="footer">
 			<div class="container">
-				<p class="muted credit"><small>LXC Web Panel &copy; 2013{% if 'logged_in' in session %} - <a href="{{ url_for('about') }}" class="muted">MIT License</a>{% endif %}<small></p>
+				<p class="muted credit"><small>LXC-Web{% if 'logged_in' in session %} - <a href="{{ url_for('about') }}" class="muted">MIT License</a>{% endif %}<small></p>
 			</div>
 		</div>
 
@@ -78,7 +75,7 @@
 		================================================== -->
 		<!-- Placed at the end of the document so the pages load faster -->
 		<script> var $SCRIPT_ROOT = {{ request.script_root|tojson|safe }};</script>
-		<script src="//ajax.googleapis.com/ajax/libs/jquery/1.9.1/jquery.min.js"></script>
+		<script src="{{ url_for('static', filename='js/jquery-1.9.1.min.js') }}"></script>
 		<script src="{{ url_for('static', filename='js/bootstrap.min.js') }}"></script>
 		<script src="{{ url_for('static', filename='js/jqBootstrapValidation.js') }}"></script>
 		<script src="{{ url_for('static', filename='js/html5slider.js') }}"></script>

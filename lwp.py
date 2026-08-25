@@ -47,9 +47,7 @@ except ImportError:
 config = configparser.SafeConfigParser()
 config.readfp(open('lwp.conf'))
 
-SECRET_KEY = '\xb13\xb6\xfb+Z\xe8\xd1n\x80\x9c\xe7KM' \
-             '\x1c\xc1\xa7\xf8\xbeY\x9a\xfa<.'
-
+SECRET_KEY = config.get('session', 'secret_key', raw=True)
 DEBUG = config.getboolean('global', 'debug')
 DATABASE = config.get('database', 'file')
 ADDRESS = config.get('global', 'address')
@@ -869,12 +867,6 @@ def refresh_memory_containers(name=None):
         elif name == 'host':
             return jsonify(lwp.host_memory_usage())
         return jsonify({'memusg': lwp.memory_usage(name)})
-
-
-@app.route('/_check_version')
-def check_version():
-    if 'logged_in' in session:
-        return jsonify(lwp.check_version())
 
 
 def hash_passwd(passwd):
