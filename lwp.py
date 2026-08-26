@@ -29,6 +29,7 @@
 
 import lxclite as lxc
 import lwp
+import argparse
 import subprocess
 import time
 import re
@@ -905,4 +906,9 @@ def check_session_limit():
             session['last_activity'] = now
 
 if __name__ == '__main__':
-    app.run(host=app.config['ADDRESS'], port=app.config['PORT'])
+    parser = argparse.ArgumentParser(description='LXC-Web panel')
+    parser.add_argument('-d', '--debug', action='store_true',
+                        help='run with Flask debug mode (reloader and debugger)')
+    args = parser.parse_args()
+    debug = args.debug or app.config.get('DEBUG', False)
+    app.run(host=app.config['ADDRESS'], port=app.config['PORT'], debug=debug)
