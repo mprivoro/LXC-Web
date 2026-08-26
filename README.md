@@ -4,6 +4,8 @@ Web UI for managing LXC containers.
 
 Fork of [lxc-webpanel/LXC-Web-Panel](https://github.com/lxc-webpanel/LXC-Web-Panel) (archived 2020). This copy adds Python 3 and current LXC support.
 
+## Supported 
+
 ## Get it
 
 ```bash

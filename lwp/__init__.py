@@ -2,11 +2,12 @@
 # for compatibility with LXC 0.8 and 0.9
 # on Ubuntu 12.04/12.10/13.04
 
-# Author: Elie Deloumeau
-# Contact: elie@deloumeau.fr
+# Author: Michael Privorotsky
+# https://github.com/mprivoro/LXC-Web
 
 # The MIT License (MIT)
-# Copyright (c) 2013 Elie Deloumeau
+# Copyright (c) 2013 Antoine TANZILLI, Élie DELOUMEAU
+# Copyright (c) 2026 Michael Privorotsky
 
 # Permission is hereby granted, free of charge, to any person obtaining a copy
 # of this software and associated documentation files (the "Software"), to deal
@@ -28,12 +29,15 @@
 
 import sys
 sys.path.append('../')
-from lxclite import exists, stopped, ContainerDoesntExists
+from lxclite import exists, listx, ContainerDoesntExists
 
 import os
 import platform
 import re
+import shutil
+import stat
 import subprocess
+import tempfile
 import time
 
 from io import StringIO
@@ -197,7 +201,9 @@ def memory_usage(name):
         raise ContainerDoesntExists(
             "The container (%s) does not exist!" % name)
 
-    if name in stopped():
+    states = listx()
+    if name not in states.get('RUNNING', []) and \
+            name not in states.get('FROZEN', []):
         return 0
 
     # cgroup v2: memory.current; cgroup v1: memory.usage_in_bytes
@@ -212,7 +218,7 @@ def memory_usage(name):
                 stderr=subprocess.DEVNULL,
                 universal_newlines=True).splitlines()
             if out:
-                return int(out[0]) / 1024 / 1024
+                return int(int(out[0]) / 1024 / 1024)
         except (subprocess.CalledProcessError, ValueError, OSError):
             continue
     return 0
@@ -299,9 +305,9 @@ def host_uptime():
     '''
     f = open('/proc/uptime')
     uptime = int(f.readlines()[0].split('.')[0])
-    minutes = uptime / 60 % 60
-    hours = uptime / 60 / 60 % 24
-    days = uptime / 60 / 60 / 24
+    minutes = int(uptime / 60) % 60
+    hours = int(uptime / 3600) % 24
+    days = float('%.2f' % (uptime / 86400.0))
     f.close()
     return {'day': days,
             'time': '%d:%02d' % (hours, minutes)}
@@ -359,6 +365,77 @@ def get_templates_list():
     return sorted(templates)
 
 
+def get_cached_images():
+    '''
+    Cached lxc-download images under /var/cache/lxc/download.
+    Each item: id, label, dist, release, arch, variant.
+    '''
+    base = '/var/cache/lxc/download'
+    images = []
+    if not os.path.isdir(base):
+        return images
+
+    for dist in sorted(os.listdir(base)):
+        dist_path = os.path.join(base, dist)
+        if not os.path.isdir(dist_path):
+            continue
+        for release in sorted(os.listdir(dist_path)):
+            release_path = os.path.join(dist_path, release)
+            if not os.path.isdir(release_path):
+                continue
+            for arch in sorted(os.listdir(release_path)):
+                arch_path = os.path.join(release_path, arch)
+                if not os.path.isdir(arch_path):
+                    continue
+                for variant in sorted(os.listdir(arch_path)):
+                    variant_path = os.path.join(arch_path, variant)
+                    rootfs = os.path.join(variant_path, 'rootfs.tar.xz')
+                    if not os.path.isfile(rootfs):
+                        continue
+                    images.append({
+                        'id': '%s:%s:%s:%s' % (dist, release, arch, variant),
+                        'label': '%s / %s / %s' % (dist, release, arch),
+                        'dist': dist,
+                        'release': release,
+                        'arch': arch,
+                        'variant': variant,
+                    })
+    return images
+
+
+def cached_image_xargs(image_id):
+    '''
+    Return lxc-download arguments for a cached image id, or None.
+    '''
+    if not image_id:
+        return None
+    for img in get_cached_images():
+        if img['id'] == image_id:
+            return '-d %s -r %s -a %s --variant %s --force-cache' % (
+                img['dist'], img['release'], img['arch'], img['variant'])
+    return None
+
+
+def parse_create_source(source):
+    '''
+    Parse the Create CT source dropdown.
+    Returns (template, xargs) or (None, None).
+    Cached images always use template "download" with --force-cache.
+    '''
+    if not source:
+        return None, None
+    if source.startswith('image:'):
+        xargs = cached_image_xargs(source[6:])
+        if xargs:
+            return 'download', xargs
+        return None, None
+    if source.startswith('template:'):
+        tmpl = source[9:]
+        if tmpl in get_templates_list():
+            return tmpl, None
+    return None, None
+
+
 def check_version():
     '''
     returns the local LWP version (no remote lookup)
@@ -397,6 +474,30 @@ def get_net_settings():
     return cfg
 
 
+def empty_container_settings(error=''):
+    '''
+    Placeholder settings when the container config is missing or unreadable.
+    Always a dict so templates never crash on a missing config.
+    '''
+
+    return {
+        'type': '',
+        'link': '',
+        'flags': '',
+        'hwaddr': '',
+        'rootfs': '',
+        'utsname': '',
+        'arch': '',
+        'ipv4': '',
+        'memlimit': '',
+        'swlimit': '',
+        'cpus': '',
+        'shares': '',
+        'auto': False,
+        'config_error': error,
+    }
+
+
 def get_container_settings(name):
     '''
     returns a dict of all utils settings for a container
@@ -408,9 +509,15 @@ def get_container_settings(name):
         filename = '/var/lib/lxc/%s/config' % name
 
     if not file_exist(filename):
-        return False
-    config = _load_unsectioned(filename)
-    cfg = {}
+        return empty_container_settings('Config file is missing.')
+
+    try:
+        config = _load_unsectioned(filename)
+    except (OSError, IOError, configparser.Error, UnicodeDecodeError,
+            ValueError, TypeError):
+        return empty_container_settings('Config file cannot be read.')
+
+    cfg = empty_container_settings()
     cfg['type'] = _config_get(config, SETTING_KEYS['type'])
     cfg['link'] = _config_get(config, SETTING_KEYS['link'])
     cfg['flags'] = _config_get(config, SETTING_KEYS['flags'])
@@ -433,6 +540,101 @@ def get_container_settings(name):
         cfg['auto'] = '%s.conf' % name in ls_auto()
 
     return cfg
+
+
+def container_config_path(name):
+    '''
+    Absolute path of a container config, or '' if the name is unsafe.
+    '''
+
+    if not name or not re.match(r'^[A-Za-z0-9_-]+$', name):
+        return ''
+    if os.geteuid():
+        base = os.path.expanduser('~/.local/share/lxc')
+    else:
+        base = '/var/lib/lxc'
+    return os.path.join(base, name, 'config')
+
+
+def read_container_config(name):
+    '''
+    Return (text, error). text is None if the file is missing or unreadable.
+    error is 'missing' when the file does not exist.
+    '''
+
+    path = container_config_path(name)
+    if not path:
+        return None, 'Invalid container name.'
+    try:
+        with open(path) as fh:
+            return fh.read(), ''
+    except FileNotFoundError:
+        return None, 'missing'
+    except (OSError, IOError) as e:
+        return None, str(e)
+
+
+def write_container_config(name, text):
+    '''
+    Write the container config as-is (comments and duplicate keys kept).
+    Replaces the live file atomically and keeps one config.bak copy.
+    '''
+
+    path = container_config_path(name)
+    if not path:
+        return False, 'Invalid container name.'
+    if text is None:
+        text = ''
+    if '\0' in text:
+        return False, 'Config contains a null byte.'
+    if len(text) > 1024 * 1024:
+        return False, 'Config is too large (1 MB max).'
+
+    text = text.replace('\r\n', '\n').replace('\r', '\n')
+    if text and not text.endswith('\n'):
+        text += '\n'
+
+    directory = os.path.dirname(path)
+    if not os.path.isdir(directory):
+        return False, 'Container directory does not exist.'
+
+    orig_mode = 0o644
+    if os.path.isfile(path):
+        orig_mode = stat.S_IMODE(os.stat(path).st_mode)
+
+    fd, tmp = tempfile.mkstemp(prefix='.config.', suffix='.tmp', dir=directory)
+    try:
+        with os.fdopen(fd, 'w') as fh:
+            fh.write(text)
+            fh.flush()
+            os.fsync(fh.fileno())
+        if os.path.isfile(path):
+            shutil.copy2(path, path + '.bak')
+        os.rename(tmp, path)
+        os.chmod(path, orig_mode)
+    except (OSError, IOError) as e:
+        try:
+            os.unlink(tmp)
+        except OSError:
+            pass
+        return False, str(e)
+    return True, ''
+
+
+def restore_container_config_backup(name):
+    '''Replace the live config with config.bak if that file exists.'''
+
+    path = container_config_path(name)
+    if not path:
+        return False, 'Invalid container name.'
+    bak = path + '.bak'
+    if not os.path.isfile(bak):
+        return False, 'No backup file (config.bak).'
+    try:
+        shutil.copy2(bak, path)
+    except (OSError, IOError) as e:
+        return False, str(e)
+    return True, ''
 
 
 def push_net_value(key, value):
