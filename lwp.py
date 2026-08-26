@@ -2,11 +2,12 @@
 # for compatibility with LXC 0.8 and 0.9
 # on Ubuntu 12.04/12.10/13.04
 
-# Author: Elie Deloumeau
-# Contact: elie@deloumeau.fr
+# Author: Michael Privorotsky
+# https://github.com/mprivoro/LXC-Web
 
 # The MIT License (MIT)
-# Copyright (c) 2013 Elie Deloumeau
+# Copyright (c) 2013 Antoine TANZILLI, Élie DELOUMEAU
+# Copyright (c) 2026 Michael Privorotsky
 
 # Permission is hereby granted, free of charge, to any person obtaining a copy
 # of this software and associated documentation files (the "Software"), to deal
@@ -122,7 +123,8 @@ def home():
         return render_template('index.html', containers=lxc.ls(),
                                containers_all=containers_all,
                                dist=lwp.check_ubuntu(),
-                               templates=lwp.get_templates_list())
+                               templates=lwp.get_templates_list(),
+                               images=lwp.get_cached_images())
     return render_template('login.html')
 
 
@@ -671,8 +673,14 @@ def create_container():
             return abort(403)
         if request.method == 'POST':
             name = request.form['name']
-            template = request.form['template']
-            command = request.form['command']
+            command = request.form.get('command', '')
+            template, image_xargs = lwp.parse_create_source(
+                request.form.get('source', ''))
+            if not template:
+                flash(u'Select a cached image or a template!', 'error')
+                return redirect(url_for('home'))
+            if image_xargs:
+                command = image_xargs
 
             if re.match('^(?!^containers$)|[a-zA-Z0-9_-]+$', name):
                 storage_method = request.form['backingstore']

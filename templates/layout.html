@@ -5,7 +5,7 @@
 		<title>{% block title %}{% endblock %} - LXC Web Panel</title>
 		<meta name="viewport" content="width=device-width, initial-scale=1.0">
 		<meta name="description" content="">
-		<meta name="author" content="Antoine Tanzilli, Elie Deloumeau-Prigent">
+		<meta name="author" content="Michael Privorotsky">
 
 		<link href="{{ url_for('static', filename='css/bootstrap.css') }}" rel="stylesheet">
 		<link href="{{ url_for('static', filename='css/bootstrap-responsive.min.css') }}" rel="stylesheet">
@@ -81,7 +81,7 @@
 		<script src="{{ url_for('static', filename='js/html5slider.js') }}"></script>
 		<script>
 				$(function() {
-						$(".alert").not('.dont-hide').alert().delay(5000).slideUp();
+						$(".alert").not('.dont-hide, .modal .alert').alert().delay(5000).slideUp();
 						$("#home-btn").on('click',function(){
 								$('#home-load').fadeIn();
 						});

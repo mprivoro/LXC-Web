@@ -2,11 +2,12 @@
 # for compatibility with LXC 0.8 and 0.9
 # on Ubuntu 12.04/12.10/13.04
 
-# Author: Elie Deloumeau
-# Contact: elie@deloumeau.fr
+# Author: Michael Privorotsky
+# https://github.com/mprivoro/LXC-Web
 
 # The MIT License (MIT)
-# Copyright (c) 2013 Elie Deloumeau
+# Copyright (c) 2013 Élie DELOUMEAU
+# Copyright (c) 2026 Michael Privorotsky
 
 # Permission is hereby granted, free of charge, to any person obtaining a copy
 # of this software and associated documentation files (the "Software"), to deal

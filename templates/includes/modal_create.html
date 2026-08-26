@@ -2,7 +2,7 @@
 	<form method="post" action="{{ url_for('create_container') }}" style="margin:0;">
 		<div class="modal-header">
 			<button type="button" class="close" data-dismiss="modal" aria-hidden="true">×</button>
-			<h3 id="createCTLabel">Create container</h3>
+			<h3 id="createCTLabel">Create container <a href="#" id="createSourceHelpBtn" class="muted" title="How to choose an image" style="font-size:16px; font-weight:normal; margin-left:6px;"><i class="icon-question-sign"></i></a></h3>
 		</div>
 		<div class="modal-body">
 			<div class="control-group">
@@ -12,10 +12,38 @@
 				</div>
 
 				<div class="controls input-prepend pull-right" style="margin-top: -40px;">
-					<span class="add-on"><i class="icon-download-alt"></i></span>
-					<select id="selectTemplate" name="template">
-						{% for template in templates %}<option value="{{ template }}" {% if template == 'ubuntu' %}selected{% endif %}>{{ template }}</option>{% endfor %}
+					<span class="add-on"><i class="icon-picture"></i></span>
+					<select id="selectSource" name="source">
+						{% if images %}
+						<optgroup label="Cached images">
+							{% for img in images %}
+							<option value="image:{{ img.id }}" {% if loop.first %}selected{% endif %}>{{ img.label }}</option>
+							{% endfor %}
+						</optgroup>
+						{% endif %}
+						<optgroup label="Templates">
+							{% for template in templates %}
+							<option value="template:{{ template }}" {% if not images and loop.first %}selected{% endif %}>{{ template }}</option>
+							{% endfor %}
+						</optgroup>
 					</select>
+				</div>
+			</div>
+			<div id="createSourceHelp" class="hide">
+				<div class="alert alert-info dont-hide" style="text-align:left;">
+					<strong>How to choose</strong>
+					<ul style="margin:8px 0 0 18px;">
+						<li><strong>Cached images</strong> (ubuntu / jammy, ubuntu / noble) are already on this host. Pick one and click Create. Nothing is downloaded; LXC uses <code>--force-cache</code>. You do not need a template.</li>
+						<li><strong>Templates</strong> are LXC scripts, not those Ubuntu images:
+							<ul>
+								<li><code>download</code> — fetch a new image from the network (set extra options under Advanced).</li>
+								<li><code>local</code> — your own metadata + rootfs files. This is <em>not</em> the jammy/noble cache.</li>
+								<li><code>busybox</code> — a tiny busybox container.</li>
+								<li><code>oci</code> — an OCI/Docker-style image.</li>
+							</ul>
+						</li>
+					</ul>
+					<p style="margin:8px 0 0 0;"><small>Typical case: enter a name, keep a cached image selected, click Create.</small></p>
 				</div>
 			</div>
 			<button id ="advancedcreate" class="btn btn-small">Advanced options</button>

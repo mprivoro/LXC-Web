@@ -1,4 +1,8 @@
-/* LXC Web Panel layout: use the full browser width (Bootstrap 2 is 940/1170px). */
+/* LXC-Web layout: use the full browser width (Bootstrap 2 is 940/1170px).
+ * Copyright (c) 2026 Michael Privorotsky
+ * Based on LXC Web Panel, Copyright (c) 2013 Antoine TANZILLI, Élie DELOUMEAU
+ * MIT License
+ */
 
 .container,
 .navbar-static-top .container,

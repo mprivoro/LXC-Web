@@ -2,11 +2,12 @@
 # for compatibility with LXC 0.8 and 0.9
 # on Ubuntu 12.04/12.10/13.04
 
-# Author: Elie Deloumeau
-# Contact: elie@deloumeau.fr
+# Author: Michael Privorotsky
+# https://github.com/mprivoro/LXC-Web
 
 # The MIT License (MIT)
-# Copyright (c) 2013 Elie Deloumeau
+# Copyright (c) 2013 Antoine TANZILLI, Élie DELOUMEAU
+# Copyright (c) 2026 Michael Privorotsky
 
 # Permission is hereby granted, free of charge, to any person obtaining a copy
 # of this software and associated documentation files (the "Software"), to deal
@@ -357,6 +358,77 @@ def get_templates_list():
                 templates.append(line.replace('lxc-', ''))
 
     return sorted(templates)
+
+
+def get_cached_images():
+    '''
+    Cached lxc-download images under /var/cache/lxc/download.
+    Each item: id, label, dist, release, arch, variant.
+    '''
+    base = '/var/cache/lxc/download'
+    images = []
+    if not os.path.isdir(base):
+        return images
+
+    for dist in sorted(os.listdir(base)):
+        dist_path = os.path.join(base, dist)
+        if not os.path.isdir(dist_path):
+            continue
+        for release in sorted(os.listdir(dist_path)):
+            release_path = os.path.join(dist_path, release)
+            if not os.path.isdir(release_path):
+                continue
+            for arch in sorted(os.listdir(release_path)):
+                arch_path = os.path.join(release_path, arch)
+                if not os.path.isdir(arch_path):
+                    continue
+                for variant in sorted(os.listdir(arch_path)):
+                    variant_path = os.path.join(arch_path, variant)
+                    rootfs = os.path.join(variant_path, 'rootfs.tar.xz')
+                    if not os.path.isfile(rootfs):
+                        continue
+                    images.append({
+                        'id': '%s:%s:%s:%s' % (dist, release, arch, variant),
+                        'label': '%s / %s / %s' % (dist, release, arch),
+                        'dist': dist,
+                        'release': release,
+                        'arch': arch,
+                        'variant': variant,
+                    })
+    return images
+
+
+def cached_image_xargs(image_id):
+    '''
+    Return lxc-download arguments for a cached image id, or None.
+    '''
+    if not image_id:
+        return None
+    for img in get_cached_images():
+        if img['id'] == image_id:
+            return '-d %s -r %s -a %s --variant %s --force-cache' % (
+                img['dist'], img['release'], img['arch'], img['variant'])
+    return None
+
+
+def parse_create_source(source):
+    '''
+    Parse the Create CT source dropdown.
+    Returns (template, xargs) or (None, None).
+    Cached images always use template "download" with --force-cache.
+    '''
+    if not source:
+        return None, None
+    if source.startswith('image:'):
+        xargs = cached_image_xargs(source[6:])
+        if xargs:
+            return 'download', xargs
+        return None, None
+    if source.startswith('template:'):
+        tmpl = source[9:]
+        if tmpl in get_templates_list():
+            return tmpl, None
+    return None, None
 
 
 def check_version():

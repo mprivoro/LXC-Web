@@ -177,6 +177,11 @@
 
 				// Create CT
 				$('#advancedcreate').click(function(e){ e.preventDefault(); $('#advancedcreatediv').slideToggle(); });
+				$('#createSourceHelpBtn').click(function(e){
+					e.preventDefault();
+					e.stopPropagation();
+					$('#createSourceHelp').stop(true, true).slideToggle();
+				});
 
 				// Clone CT
 				$('#advancedclone').click(function(e){ e.preventDefault(); $('#advancedclonediv').slideToggle(); });
