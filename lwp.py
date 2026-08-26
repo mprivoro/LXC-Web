@@ -62,6 +62,19 @@ app.config.from_object(__name__)
 app.config['TEMPLATES_AUTO_RELOAD'] = True
 app.jinja_env.auto_reload = True
 
+# Optional LXC attach console (flask-sock). If the extra is missing, the
+# panel runs exactly as before — no Console button, no WebSocket route.
+CONSOLE_AVAILABLE = False
+try:
+    from flask_sock import Sock
+    app.config['SOCK_SERVER_OPTIONS'] = {'ping_interval': 20}
+    sock = Sock(app)
+    from lwp.console import register_console
+    register_console(sock, lxc)
+    CONSOLE_AVAILABLE = True
+except ImportError:
+    sock = None
+
 
 def connect_db():
     '''
@@ -91,6 +104,58 @@ def teardown_request(exception):
         g.db.close()
 
 
+def _overview_row(container, running=False):
+    '''
+    One Overview row. A killed/invalid config must not raise.
+    '''
+
+    error = ''
+    try:
+        inf = lxc.info(container)
+    except Exception as e:
+        inf = {'state': 'BROKEN', 'pid': '0', 'error': str(e)}
+    error = inf.get('error') or ''
+
+    try:
+        settings = lwp.get_container_settings(container)
+    except Exception as e:
+        settings = lwp.empty_container_settings(str(e))
+        error = error or str(e)
+    if not settings:
+        settings = lwp.empty_container_settings(
+            'Config file is missing or unreadable.')
+        error = error or settings['config_error']
+    else:
+        error = error or settings.get('config_error') or ''
+
+    memusg = 0
+    snaps = []
+    if inf.get('state') != 'BROKEN':
+        try:
+            memusg = lwp.memory_usage(container)
+        except Exception:
+            memusg = 0
+        try:
+            snaps = lxc.snapshots(container)
+        except Exception:
+            snaps = []
+        if running:
+            try:
+                settings['ipv4'] = lxc.ip_address(container, True)
+            except Exception:
+                pass
+    elif not error:
+        error = 'LXC cannot load this container config.'
+
+    return {
+        'name': container,
+        'memusg': memusg,
+        'settings': settings,
+        'snapshots': snaps,
+        'error': error,
+    }
+
+
 @app.route('/')
 @app.route('/home')
 def home():
@@ -99,33 +164,44 @@ def home():
     '''
 
     if 'logged_in' in session:
-        listx = lxc.listx()
+        try:
+            listx = lxc.listx()
+        except Exception as e:
+            flash(u'Unable to list containers: %s' % e, 'error')
+            listx = {'RUNNING': [], 'FROZEN': [], 'STOPPED': [], 'BROKEN': []}
+
         containers_all = []
-
-        for status in ['RUNNING', 'FROZEN', 'STOPPED']:
+        for status in ['RUNNING', 'FROZEN', 'STOPPED', 'BROKEN']:
             containers_by_status = []
-
             running = (status == 'RUNNING')
-            for container in listx[status]:
-                settings = lwp.get_container_settings(container)
-                if running:
-                    settings['ipv4'] = lxc.ip_address(container, running) 
-                containers_by_status.append({
-                    'name': container,
-                    'memusg': lwp.memory_usage(container),
-                    'settings': settings,
-                    'snapshots': lxc.snapshots(container)
-                })
+            for container in listx.get(status, []):
+                try:
+                    containers_by_status.append(
+                        _overview_row(container, running))
+                except Exception as e:
+                    containers_by_status.append({
+                        'name': container,
+                        'memusg': 0,
+                        'settings': lwp.empty_container_settings(str(e)),
+                        'snapshots': [],
+                        'error': str(e),
+                    })
             containers_all.append({
                 'status': status.lower(),
                 'containers': containers_by_status
             })
 
-        return render_template('index.html', containers=lxc.ls(),
+        try:
+            names = lxc.ls()
+        except Exception:
+            names = []
+
+        return render_template('index.html', containers=names,
                                containers_all=containers_all,
                                dist=lwp.check_ubuntu(),
                                templates=lwp.get_templates_list(),
-                               images=lwp.get_cached_images())
+                               images=lwp.get_cached_images(),
+                               console_available=CONSOLE_AVAILABLE)
     return render_template('login.html')
 
 
@@ -141,6 +217,24 @@ def about():
     return render_template('login.html')
 
 
+@app.route('/<container>/console')
+def container_console(container=None):
+    '''
+    Full-page LXC attach console (opened in a separate window/tab).
+    '''
+
+    if 'logged_in' not in session:
+        return render_template('login.html')
+    if session.get('su') != 'Yes' or not CONSOLE_AVAILABLE:
+        return abort(403)
+    if not container or not re.match(r'^[A-Za-z0-9_-]+$', container):
+        return abort(404)
+    if not lxc.exists(container):
+        flash(u'Container %s does not exist!' % container, 'error')
+        return redirect(url_for('home'))
+    return render_template('console.html', container=container)
+
+
 @app.route('/<container>/edit', methods=['POST', 'GET'])
 def edit(container=None):
     '''
@@ -149,13 +243,59 @@ def edit(container=None):
 
     if 'logged_in' in session:
         host_memory = lwp.host_memory_usage()
-        if request.method == 'POST':
+        cfg = None
+        if request.method == 'POST' and request.form.get('save_config'):
+            if session.get('su') != 'Yes':
+                return abort(403)
+            if request.form.get('token') != session.get('token'):
+                flash(u'Invalid token!', 'error')
+            elif request.form.get('restore_bak'):
+                ok, err = lwp.restore_container_config_backup(container)
+                if ok:
+                    flash(u'Config backup restored for %s.' % container,
+                          'success')
+                else:
+                    flash(u'Unable to restore backup: %s' % err, 'error')
+            else:
+                ok, err = lwp.write_container_config(
+                    container, request.form.get('raw_config', ''))
+                if not ok:
+                    flash(u'Unable to save config: %s' % err, 'error')
+                else:
+                    try:
+                        inf = lxc.info(container)
+                    except lxc.ContainerDoesntExists:
+                        inf = {'state': 'BROKEN',
+                               'error': 'Container does not exist.'}
+                    except Exception as e:
+                        inf = {'state': 'BROKEN', 'error': str(e)}
+                    if inf.get('state') == 'BROKEN':
+                        flash(u'Config saved, but LXC cannot load %s: %s' % (
+                            container,
+                            inf.get('error') or 'broken config'), 'error')
+                    else:
+                        flash(u'Config file saved for %s.' % container,
+                              'success')
+        elif request.method == 'POST':
             cfg = lwp.get_container_settings(container)
+            if not cfg:
+                cfg = lwp.empty_container_settings('Config file is missing.')
+            if cfg.get('config_error'):
+                flash(u'Cannot update %s: %s' % (container, cfg['config_error']),
+                      'error')
+                cfg = None
+        if request.method == 'POST' and cfg:
             ip_regex = '(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?).(25[0-5]' \
                        '|2[0-4][0-9]|[01]?[0-9][0-9]?).(25[0-5]|2[0-4]' \
                        '[0-9]|[01]?[0-9][0-9]?).(25[0-5]|2[0-4][0-9]|[01]' \
                        '?[0-9][0-9]?)(/(3[0-2]|[12]?[0-9]))?'
-            info = lxc.info(container)
+            try:
+                info = lxc.info(container)
+            except lxc.ContainerDoesntExists:
+                flash(u'Container %s does not exist!' % container, 'error')
+                return redirect(url_for('home'))
+            except Exception as e:
+                info = {'state': 'BROKEN', 'pid': '0', 'error': str(e)}
 
             form = {}
             form['type'] = request.form['type']
@@ -228,7 +368,7 @@ def edit(container=None):
                     lwp.push_config_value('lxc.cgroup.memory.limit_in_bytes',
                                           form['memlimit'],
                                           container=container)
-                    if info["state"].lower() != 'stopped':
+                    if info["state"].lower() not in ('stopped', 'broken'):
                         lxc.cgroup(container,
                                    'lxc.cgroup.memory.limit_in_bytes',
                                    form['memlimit'])
@@ -259,7 +399,7 @@ def edit(container=None):
                         'lxc.cgroup.memory.memsw.limit_in_bytes',
                         form['swlimit'], container=container)
 
-                    if info["state"].lower() != 'stopped':
+                    if info["state"].lower() not in ('stopped', 'broken'):
                         lxc.cgroup(container,
                                    'lxc.cgroup.memory.memsw.limit_in_bytes',
                                    form['swlimit'])
@@ -271,7 +411,7 @@ def edit(container=None):
                 lwp.push_config_value('lxc.cgroup.cpuset.cpus', form['cpus'],
                                       container=container)
 
-                if info["state"].lower() != 'stopped':
+                if info["state"].lower() not in ('stopped', 'broken'):
                         lxc.cgroup(container, 'lxc.cgroup.cpuset.cpus',
                                    form['cpus'])
                 flash(u'CPUs updated for %s!' % container, 'success')
@@ -281,7 +421,7 @@ def edit(container=None):
                      re.match('^[0-9]+$', form['shares'])):
                 lwp.push_config_value('lxc.cgroup.cpu.shares', form['shares'],
                                       container=container)
-                if info["state"].lower() != 'stopped':
+                if info["state"].lower() not in ('stopped', 'broken'):
                         lxc.cgroup(container, 'lxc.cgroup.cpu.shares',
                                    form['shares'])
                 flash(u'CPU shares updated for %s!' % container, 'success')
@@ -309,17 +449,67 @@ def edit(container=None):
                 except OSError:
                     flash(u'Unable to remove symlink', 'error')
 
-        info = lxc.info(container)
+        try:
+            info = lxc.info(container)
+        except lxc.ContainerDoesntExists:
+            flash(u'Container %s does not exist!' % container, 'error')
+            return redirect(url_for('home'))
+        except Exception as e:
+            info = {'state': 'BROKEN', 'pid': '0', 'error': str(e)}
         status = info['state']
         pid = info['pid']
+        try:
+            memusg = 0 if status == 'BROKEN' else lwp.memory_usage(container)
+        except Exception:
+            memusg = 0
 
         infos = {'status': status,
                  'pid': pid,
-                 'memusg': lwp.memory_usage(container)}
+                 'memusg': memusg,
+                 'error': info.get('error') or ''}
+        try:
+            snapshots = lxc.snapshots(container)
+        except Exception:
+            snapshots = []
+        try:
+            snap_plan = lxc.snapshot_plan(container)
+        except Exception:
+            snap_plan = {
+                'state': infos['status'],
+                'storage': 'unknown',
+                'can': False,
+                'need_confirm': False,
+                'method': 'snapshot',
+                'reason': infos['error'] or 'Container is not available.',
+            }
+        try:
+            settings = lwp.get_container_settings(container)
+        except Exception as e:
+            settings = lwp.empty_container_settings(str(e))
+        if not settings:
+            settings = lwp.empty_container_settings(
+                'Config file is missing or unreadable.')
+        if settings.get('config_error') and not infos['error']:
+            infos['error'] = settings['config_error']
+        raw_config, config_read_error = lwp.read_container_config(container)
+        config_path = lwp.container_config_path(container)
+        config_missing = (raw_config is None and
+                          config_read_error == 'missing')
+        if raw_config is None:
+            raw_config = ''
+        config_has_bak = bool(config_path and
+                              os.path.isfile(config_path + '.bak'))
         return render_template('edit.html', containers=lxc.ls(),
                                container=container, infos=infos,
-                               settings=lwp.get_container_settings(container),
-                               host_memory=host_memory)
+                               settings=settings,
+                               host_memory=host_memory,
+                               snapshots=snapshots,
+                               snap_plan=snap_plan,
+                               raw_config=raw_config,
+                               config_path=config_path,
+                               config_missing=config_missing,
+                               config_read_error=config_read_error,
+                               config_has_bak=config_has_bak)
     return render_template('login.html')
 
 
@@ -594,9 +784,9 @@ def action():
     lxc-start, lxc-stop, etc...
     '''
     if 'logged_in' in session:
-        if request.args['token'] == session.get('token'):
+        name = request.args.get('name', '')
+        if request.args.get('token') == session.get('token'):
             action = request.args['action']
-            name = request.args['name']
 
             if action == 'start':
                 try:
@@ -644,6 +834,52 @@ def action():
                     flash(u'The Container %s does not exists!' % name, 'error')
                 except subprocess.CalledProcessError as e:
                     flash(u'Unable to destroy %s: %s' % (name, e.output), 'error')
+            elif action == 'destroy_snapshot':
+                if session['su'] != 'Yes':
+                    return abort(403)
+                snap = request.args.get('snap', '')
+                try:
+                    lxc.snapshot_destroy(name, snap)
+                    flash(u'Snapshot %s of %s destroyed successfully!' % (snap, name),
+                          'success')
+                except lxc.InvalidSnapshot:
+                    flash(u'Invalid snapshot name!', 'error')
+                except lxc.SnapshotDoesntExists:
+                    flash(u'Snapshot %s does not exist for %s!' % (snap, name),
+                          'error')
+                except lxc.ContainerDoesntExists:
+                    flash(u'The Container %s does not exists!' % name, 'error')
+                except subprocess.CalledProcessError as e:
+                    flash(u'Unable to destroy snapshot %s of %s: %s' %
+                          (snap, name, lxc.lxc_error_message(e.output)), 'error')
+            elif action == 'restore_snapshot':
+                if session['su'] != 'Yes':
+                    return abort(403)
+                snap = request.args.get('snap', '')
+                newname = (request.args.get('newname') or '').strip()
+                try:
+                    lxc.snapshot_restore(name, snap, newname or None)
+                    if newname and newname != name:
+                        flash(u'Snapshot %s of %s restored as %s!' %
+                              (snap, name, newname), 'success')
+                    else:
+                        flash(u'Snapshot %s restored into %s!' % (snap, name),
+                              'success')
+                except lxc.InvalidSnapshot:
+                    flash(u'Invalid snapshot or container name!', 'error')
+                except lxc.SnapshotDoesntExists:
+                    flash(u'Snapshot %s does not exist for %s!' % (snap, name),
+                          'error')
+                except lxc.ContainerDoesntExists:
+                    flash(u'The Container %s does not exists!' % name, 'error')
+                except lxc.ContainerAlreadyExists:
+                    flash(u'The Container %s already exists!' % newname, 'error')
+                except lxc.ContainerAlreadyRunning:
+                    flash(u'Stop %s before restoring a snapshot in place!' % name,
+                          'error')
+                except subprocess.CalledProcessError as e:
+                    flash(u'Unable to restore snapshot %s of %s: %s' %
+                          (snap, name, lxc.lxc_error_message(e.output)), 'error')
             elif action == 'reboot' and name == 'host':
                 if session['su'] != 'Yes':
                     return abort(403)
@@ -654,14 +890,47 @@ def action():
                     flash(u'System will now restart!', 'success')
                 except subprocess.CalledProcessError as e:
                     flash(u'System error: %s' % e.output, 'error')
-        try:
-            if request.args['from'] == 'edit':
-                return redirect('../%s/edit' % name)
-            else:
-                return redirect(url_for('home'))
-        except:
-            return redirect(url_for('home'))
+        if request.args.get('from') == 'edit' and name:
+            return redirect(url_for('edit', container=name))
+        return redirect(url_for('home'))
     return render_template('login.html')
+
+
+@app.route('/action/take-snapshot', methods=['POST'])
+def take_snapshot():
+    '''
+    Create an LXC snapshot of a container.
+    '''
+    if 'logged_in' not in session:
+        return render_template('login.html')
+    if session['su'] != 'Yes':
+        return abort(403)
+    if request.form.get('token') != session.get('token'):
+        return abort(403)
+
+    name = request.form.get('name', '')
+    comment = (request.form.get('comment') or '')[:2000]
+    allow_running = request.form.get('allow_running') == '1'
+    try:
+        snap = lxc.snapshot_create(name, comment, allow_running=allow_running)
+        if snap:
+            flash(u'Snapshot %s of %s created successfully!' % (snap, name),
+                  'success')
+        else:
+            flash(u'Snapshot of %s created successfully!' % name, 'success')
+    except lxc.ContainerDoesntExists:
+        flash(u'The Container %s does not exists!' % name, 'error')
+    except lxc.SnapshotNotPossible as e:
+        flash(u'%s' % e, 'error')
+    except lxc.SnapshotNeedsConfirm as e:
+        flash(u'%s' % e, 'warning')
+    except subprocess.CalledProcessError as e:
+        flash(u'Unable to snapshot %s: %s' %
+              (name, lxc.lxc_error_message(e.output)), 'error')
+
+    if request.form.get('from') == 'edit':
+        return redirect(url_for('edit', container=name))
+    return redirect(url_for('home'))
 
 
 @app.route('/action/create-container', methods=['GET', 'POST'])
@@ -856,6 +1125,21 @@ def refresh_uptime_host():
         return jsonify(lwp.host_uptime())
 
 
+@app.route('/_snapshot_info')
+def snapshot_info():
+    if 'logged_in' in session:
+        name = request.args.get('name', '')
+        snap = request.args.get('snap', '')
+        try:
+            return jsonify(lxc.snapshot_info(name, snap))
+        except (lxc.ContainerDoesntExists, lxc.SnapshotDoesntExists,
+                lxc.InvalidSnapshot):
+            return jsonify({'error': 'not found'}), 404
+        except Exception as e:
+            return jsonify({'error': str(e)}), 400
+    return abort(403)
+
+
 @app.route('/_refresh_disk_host')
 def refresh_disk_host():
     if 'logged_in' in session:
@@ -867,16 +1151,25 @@ def refresh_disk_host():
 def refresh_memory_containers(name=None):
     if 'logged_in' in session:
         if name == 'containers':
-            containers_running = lxc.running()
+            try:
+                containers_running = lxc.running()
+            except Exception:
+                containers_running = []
             containers = []
             for container in containers_running:
                 container = container.replace(' (auto)', '')
-                containers.append({'name': container,
-                                   'memusg': lwp.memory_usage(container)})
+                try:
+                    memusg = lwp.memory_usage(container)
+                except Exception:
+                    memusg = 0
+                containers.append({'name': container, 'memusg': memusg})
             return jsonify(data=containers)
         elif name == 'host':
             return jsonify(lwp.host_memory_usage())
-        return jsonify({'memusg': lwp.memory_usage(name)})
+        try:
+            return jsonify({'memusg': lwp.memory_usage(name)})
+        except Exception:
+            return jsonify({'memusg': 0})
 
 
 def hash_passwd(passwd):

@@ -1,0 +1,28 @@
+<!DOCTYPE html>
+<html lang="en">
+	<head>
+		<meta charset="utf-8">
+		<title>{{ container }} - Console</title>
+		<meta name="viewport" content="width=device-width, initial-scale=1.0">
+		<style>html, body { height: 100%; margin: 0; overflow: hidden; }</style>
+		<link rel="stylesheet" href="{{ url_for('static', filename='css/xterm.css') }}">
+		<link rel="stylesheet" href="{{ url_for('static', filename='css/lwp.css') }}?v=12">
+		<link rel="shortcut icon" href="{{ url_for('static', filename='ico/favicon.ico') }}">
+	</head>
+	<body class="console-page">
+		<div class="console-page-bar">
+			<span class="console-page-title">{{ container }}</span>
+			<button type="button" class="console-send-key" data-key="ctrl-w" tabindex="-1" title="Send Ctrl+W (nano Where Is / readline kill-word). Chrome closes the window on Ctrl+W.">^W</button>
+			<button type="button" class="console-send-key" data-key="ctrl-k" tabindex="-1" title="Send Ctrl+K">^K</button>
+			<button type="button" class="console-send-key" data-key="ctrl-r" tabindex="-1" title="Send Ctrl+R">^R</button>
+			<button type="button" class="console-send-key" data-key="alt-w" tabindex="-1" title="Send Alt+W">M-W</button>
+			<span class="console-page-hint">lxc-attach</span>
+		</div>
+		<div id="consoleTerm" data-container-name="{{ container }}"></div>
+		<script>var $SCRIPT_ROOT = {{ request.script_root|tojson|safe }};</script>
+		<script src="{{ url_for('static', filename='js/jquery-1.9.1.min.js') }}"></script>
+		<script src="{{ url_for('static', filename='js/xterm.js') }}"></script>
+		<script src="{{ url_for('static', filename='js/xterm-addon-fit.js') }}"></script>
+		<script src="{{ url_for('static', filename='js/lwp-console.js') }}?v=4"></script>
+	</body>
+</html>

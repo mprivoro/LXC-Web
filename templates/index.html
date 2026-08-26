@@ -1,5 +1,5 @@
-{% set td = {'running':'success','frozen':'info','stopped':'important'} %}
-{% set tr = {'running':'success','frozen':'info','stopped':'error'} %}
+{% set td = {'running':'success','frozen':'info','stopped':'important','broken':'warning'} %}
+{% set tr = {'running':'success','frozen':'info','stopped':'error','broken':'warning'} %}
 {% set disabled = {'running':'success','frozen':'info','stopped':'important'} %}
 {% extends "layout.html" %}
 {% block title %}Overview{% endblock %}
@@ -34,6 +34,13 @@
 			</div>
 		</div>
 	</div>
+	{% for status in containers_all %}
+		{% if status.status == 'broken' and status.containers %}
+		<div class="alert alert-error dont-hide">
+			LXC cannot load {{ status.containers|count }} container config{{ 's' if status.containers|count != 1 else '' }}. They are listed as Broken — the site stays up so you can inspect or destroy them.
+		</div>
+		{% endif %}
+	{% endfor %}
 	<table class="table table-bordered">
 		<thead>
 			<tr>
@@ -52,13 +59,23 @@
 					<tr class="{{ tr[status.status] }}">
 						{% if loop.first %}<td rowspan="{{ status.containers|count }}"><span class="label label-{{ td[status.status] }}">{{ status.status|capitalize }}</span></td>{% endif %}
 						<td><a href="{{ url_for('edit',container=container.name) }}" title="Click to edit {{container.name}}">{{container.name}}</a></td>
-						<td>{{container.settings.utsname}}</td>
-						<td>{% if container.settings.flags == 'up' %}{% if container.settings.ipv4 != '' %}{{container.settings.ipv4}}{% else %}Undefined{% endif %}{% elif container.settings.flags == 'down' %}Link Down{% endif %}</td>
+						<td>
+							{% if container.settings.utsname %}{{ container.settings.utsname }}{% endif %}
+							{% if container.error %}
+								<div><span class="label label-warning">Config broken</span></div>
+								<small>{{ container.error }}</small>
+							{% endif %}
+						</td>
+						<td>
+							{% if status.status == 'broken' %}
+								—
+							{% elif container.settings.flags == 'up' %}{% if container.settings.ipv4 != '' %}{{container.settings.ipv4}}{% else %}Undefined{% endif %}{% elif container.settings.flags == 'down' %}Link Down{% endif %}
+						</td>
 						<td id="{{container.name}}">{{ render_memory_wrapper(container.memusg) }}</td>
 						<td>
 							{% if container.snapshots %}
 								{% for snap in container.snapshots %}
-									<span class="label" title="{{ snap.created }}{% if snap.path %} — {{ snap.path }}{% endif %}">{{ snap.name }}</span>
+									<a href="#" class="label snapshot-info" data-name="{{ container.name }}" data-snap="{{ snap.name }}" title="{{ snap.created }}{% if snap.comment %} — {{ snap.comment }}{% endif %}{% if snap.path %} — {{ snap.path }}{% endif %}">{{ snap.name }}</a>
 								{% endfor %}
 							{% else %}
 								<span class="muted">—</span>
@@ -68,9 +85,10 @@
 							<div class="btn-toolbar" style="margin:8px 0;">
 								<div class="btn-group">
 									{% set start_action = {'stopped':'start','frozen':'unfreeze'} %}
-									<a class="btn btn-small{% if status.status == 'running' %} disabled{% endif %}"{% if status.status == 'stopped' or status.status == 'frozen' %} href="{{ url_for('action', name=container.name, action=start_action[status.status], token=session.token) }}"{% endif %}><i class="icon-play"></i> Start</a>
-									<a class="btn btn-small{% if status.status == 'stopped' %} disabled{% endif %}"{% if status.status == 'running' or status.status == 'frozen' %} href="{{ url_for('action', name=container.name, action='stop', token=session.token) }}"{% endif %}><i class="icon-stop"></i> Stop</a>
-									<a class="btn btn-small{% if status.status == 'frozen' or status.status == 'stopped' %} disabled{% endif %}"{% if status.status == 'running' %} href="{{ url_for('action', name=container.name, action='freeze', token=session.token) }}"{% endif %}><i class="icon-pause"></i> Freeze</a>
+									<a class="btn btn-small{% if status.status == 'running' or status.status == 'broken' %} disabled{% endif %}"{% if status.status == 'stopped' or status.status == 'frozen' %} href="{{ url_for('action', name=container.name, action=start_action[status.status], token=session.token) }}"{% endif %}><i class="icon-play"></i> Start</a>
+									<a class="btn btn-small{% if status.status == 'stopped' or status.status == 'broken' %} disabled{% endif %}"{% if status.status == 'running' or status.status == 'frozen' %} href="{{ url_for('action', name=container.name, action='stop', token=session.token) }}"{% endif %}><i class="icon-stop"></i> Stop</a>
+									<a class="btn btn-small{% if status.status == 'frozen' or status.status == 'stopped' or status.status == 'broken' %} disabled{% endif %}"{% if status.status == 'running' %} href="{{ url_for('action', name=container.name, action='freeze', token=session.token) }}"{% endif %}><i class="icon-pause"></i> Freeze</a>
+									{% if session.su == 'Yes' and status.status == 'running' and console_available %}<a class="btn btn-small btn-inverse console-open" href="{{ url_for('container_console', container=container.name) }}" data-container-name="{{ container.name }}" title="Open attach console in a new window"><i class="icon-list-alt icon-white"></i> Console</a>{% endif %}
 								</div>
 								{% if session.su == 'Yes' %}<a class="pull-right close destroy" data-container-name="{{container.name}}" style="margin-top:4px;"><i class="icon-remove-sign"></i></a>{% endif %}
 							</div>
@@ -81,6 +99,7 @@
 		{% endfor %}
 	</table>
 </div>
+{% include "includes/modal_snapshots.html" %}
 {% if session.su == 'Yes' %}
 	{% include "includes/modal_reboot.html" %}
 	{% include "includes/modal_create.html" %}
@@ -100,6 +119,9 @@
 
 {% block script %}
 <script src="{{ url_for('static', filename='js/bootstrapSwitch.js') }}"></script>
+{% if session.su == 'Yes' and console_available %}
+<script src="{{ url_for('static', filename='js/lwp-console.js') }}"></script>
+{% endif %}
 <script type="text/javascript">
 			function refreshMemoryHost(){
 				$.getJSON($SCRIPT_ROOT + '/_refresh_memory_host', function(data) {
@@ -165,6 +187,8 @@
 				{% if session.su == 'Yes' and containers == [] %}$('#createCT').modal('show'){% endif %}
 				window.setInterval('refresh()', 15000);
 			});
+
+			{% include "includes/snapshot_info_js.html" %}
 
 			{% if session.su == 'Yes' %}$(document).ready(function(){
 

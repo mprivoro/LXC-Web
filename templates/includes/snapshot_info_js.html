@@ -1,0 +1,34 @@
+		function snapshotField(label, value){
+			var safe = $('<div>').text(value || '—').html();
+			return '<dt>'+label+'</dt><dd>'+safe+'</dd>';
+		}
+
+		function showSnapshotInfo(name, snap){
+			$('#snapshotInfoLabel').text(name+' / '+snap);
+			$('#snapshotInfoLoading').show();
+			$('#snapshotInfoBody').addClass('hide').empty();
+			$('#snapshotInfoError').addClass('hide');
+			$('#snapshotInfo').modal('show');
+			$.getJSON($SCRIPT_ROOT + '/_snapshot_info', {name: name, snap: snap})
+				.done(function(data){
+					$('#snapshotInfoLoading').hide();
+					$('#snapshotInfoBody').html(
+						snapshotField('Name', data.name)+
+						snapshotField('Created', data.created)+
+						snapshotField('Size', data.size)+
+						snapshotField('Path', data.path)+
+						snapshotField('Directory', data.directory)+
+						snapshotField('Rootfs', data.rootfs)+
+						snapshotField('Comment', data.comment)
+					).removeClass('hide');
+				})
+				.fail(function(){
+					$('#snapshotInfoLoading').hide();
+					$('#snapshotInfoError').removeClass('hide');
+				});
+		}
+
+		$(document).on('click', '.snapshot-info', function(e){
+			e.preventDefault();
+			showSnapshotInfo($(this).data('name'), $(this).data('snap'));
+		});

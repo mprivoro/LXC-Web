@@ -30,6 +30,9 @@
 import subprocess
 import os
 import re
+import tempfile
+import time
+import shutil
 
 
 def _run(cmd):
@@ -52,6 +55,22 @@ class ContainerAlreadyRunning(Exception):
 
 
 class ContainerNotRunning(Exception):
+    pass
+
+
+class SnapshotDoesntExists(Exception):
+    pass
+
+
+class InvalidSnapshot(Exception):
+    pass
+
+
+class SnapshotNotPossible(Exception):
+    pass
+
+
+class SnapshotNeedsConfirm(Exception):
     pass
 
 
@@ -103,24 +122,56 @@ def clone(orig=None, new=None, snapshot=False):
 
 def info(container):
     '''
-    Check info from lxc-info
+    Check info from lxc-info.
+    If LXC cannot load the container (killed/invalid config), return
+    state BROKEN and an error string instead of raising.
     '''
 
     if not exists(container):
         raise ContainerDoesntExists(
             'Container {} does not exist!'.format(container))
 
-    output = _run('lxc-info -qn {}|grep -i "State\|PID"'.format(container)).splitlines()
+    try:
+        proc = subprocess.Popen(
+            ['lxc-info', '-n', container, '-l', 'ERROR'],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            universal_newlines=True)
+        try:
+            out, err = proc.communicate(timeout=15)
+        except subprocess.TimeoutExpired:
+            proc.kill()
+            proc.communicate()
+            return {'state': 'BROKEN', 'pid': '0',
+                    'error': 'lxc-info timed out'}
+    except OSError as e:
+        return {'state': 'BROKEN', 'pid': '0',
+                'error': 'lxc-info failed: {}'.format(e)}
 
-    state = output[0].split()[1]
+    state = ''
+    pid = '0'
+    for line in (out or '').splitlines():
+        if ':' not in line:
+            continue
+        key, val = line.split(':', 1)
+        key = key.strip().lower()
+        val = val.strip()
+        if key == 'state' and val:
+            state = val.split()[0].upper()
+        elif key == 'pid' and val:
+            pid = val.split()[0]
+
+    if proc.returncode != 0 or not state:
+        error = _config_load_error(err, out)
+        cfg = os.path.join(_container_path(container), 'config')
+        if not os.path.isfile(cfg):
+            error = 'Config file is missing.'
+        return {'state': 'BROKEN', 'pid': '0', 'error': error}
 
     if state == 'STOPPED':
-        pid = "0"
-    else:
-        pid = output[1].split()[1]
+        pid = '0'
 
-    return {'state': state,
-            'pid': pid}
+    return {'state': state, 'pid': pid, 'error': ''}
 
 def ip_address(container, assume_running=False):
     try:
@@ -128,13 +179,256 @@ def ip_address(container, assume_running=False):
             return _run('lxc-info -n %s -iH' % container)
     except:
         pass
-    return '' 
+    return ''
+
+
+def _valid_snapshot_name(snap):
+    '''
+    Snapshot names from lxc-snapshot look like snap0.
+    Reject ALL so a request cannot wipe every snapshot.
+    '''
+
+    if not snap:
+        return False
+    if snap.upper() == 'ALL':
+        return False
+    return bool(re.match(r'^[A-Za-z0-9][A-Za-z0-9._-]*$', snap))
+
+
+def _container_path(container):
+    if os.geteuid():
+        return os.path.expanduser('~/.local/share/lxc/%s' % container)
+    return os.path.join('/var/lib/lxc', container)
+
+
+def _next_snap_name(container):
+    names = set(item['name'] for item in snapshots(container))
+    n = 0
+    while 'snap%d' % n in names:
+        n += 1
+    return 'snap%d' % n
+
+
+def _lxc_output(cmd):
+    '''
+    Run an lxc CLI command. Force -l ERROR so messages are written even
+    when stdout/stderr are not a tty (otherwise LXC prints nothing).
+    '''
+
+    cmd = list(cmd)
+    if '-l' not in cmd and '--logpriority' not in cmd:
+        cmd.extend(['-l', 'ERROR'])
+    return subprocess.check_output(
+        cmd, stderr=subprocess.STDOUT, universal_newlines=True)
+
+
+def lxc_error_message(output):
+    '''Best-effort human line from lxc CLI output.'''
+
+    if not output:
+        return 'lxc command failed'
+    lines = [ln.strip() for ln in output.splitlines() if ln.strip()]
+    for ln in reversed(lines):
+        idx = ln.lower().rfind('error:')
+        if idx != -1:
+            return ln[idx + 6:].strip()
+    for ln in reversed(lines):
+        lower = ln.lower()
+        if 'failed to' in lower or 'error creating' in lower:
+            if ' - ' in ln:
+                return ln.split(' - ', 1)[-1]
+            return ln
+    return lines[-1]
+
+
+def _config_load_error(err, out=''):
+    '''Human message when lxc-info cannot load a container config.'''
+
+    combined = '\n'.join(x for x in (err, out) if x)
+    if not combined.strip():
+        return 'LXC cannot load this container config.'
+    for ln in combined.splitlines():
+        lower = ln.lower()
+        if 'invalid' in lower or 'failed to parse' in lower:
+            if ' - ' in ln:
+                return ln.split(' - ', 1)[-1].strip()
+            return ln.strip()
+    return lxc_error_message(combined)
+
+
+def rootfs_backend(container):
+    '''
+    Return (backend, raw_rootfs) from the container config.
+    backend is dir, overlay, zfs, btrfs, lvm, loop, or unknown.
+    '''
+
+    raw = ''
+    config_path = os.path.join(_container_path(container), 'config')
+    try:
+        with open(config_path) as fh:
+            for line in fh:
+                line = line.strip()
+                if '=' not in line:
+                    continue
+                key = line.split('=', 1)[0].strip()
+                if key in ('lxc.rootfs.path', 'lxc.rootfs'):
+                    raw = line.split('=', 1)[1].strip()
+    except (OSError, IOError):
+        return 'unknown', raw
+
+    if not raw:
+        return 'unknown', raw
+    if raw.startswith('/'):
+        return 'dir', raw
+    if ':' in raw:
+        return raw.split(':', 1)[0].lower(), raw
+    return 'dir', raw
+
+
+def snapshot_plan(container):
+    '''
+    What taking a snapshot would do, and whether the user must confirm.
+
+    Stopped: consistent lxc-snapshot, no extra confirm.
+    Running/frozen + supported storage: possible live snapshot, confirm required.
+    Otherwise: not possible, reason explains why.
+    '''
+
+    if not exists(container):
+        raise ContainerDoesntExists(
+            'Container {} does not exist!'.format(container))
+
+    inf = info(container)
+    state = inf['state']
+    storage, _raw = rootfs_backend(container)
+    plan = {
+        'state': state,
+        'storage': storage,
+        'can': True,
+        'need_confirm': False,
+        'method': 'snapshot',
+        'reason': '',
+    }
+
+    if state == 'BROKEN':
+        plan['can'] = False
+        plan['reason'] = inf.get('error') or (
+            'LXC cannot load this container config.')
+        return plan
+
+    if state == 'STOPPED':
+        plan['reason'] = (
+            'The container is stopped. The snapshot is a consistent copy '
+            'of the filesystem.'
+        )
+        return plan
+
+    live = state.lower()
+    if storage in ('dir', 'loop'):
+        plan['need_confirm'] = True
+        plan['method'] = 'copy-running'
+        plan['reason'] = (
+            'The container is %s (directory storage). A snapshot is possible '
+            'only as a live copy: files can change during the copy, so it is '
+            'not a clean shutdown. Stop the container first for a consistent '
+            'snapshot.'
+        ) % live
+        return plan
+
+    if storage in ('overlay', 'overlayfs', 'btrfs', 'zfs', 'lvm'):
+        plan['need_confirm'] = True
+        plan['method'] = 'snapshot'
+        plan['reason'] = (
+            'The container is %s (%s storage). A snapshot is possible, but it '
+            'captures a live filesystem, not a clean shutdown. Stop the '
+            'container first for a consistent snapshot.'
+        ) % (live, storage)
+        return plan
+
+    plan['can'] = False
+    plan['reason'] = (
+        'Cannot snapshot a %s container with %s storage. Stop the container '
+        'first, then try again.'
+    ) % (live, storage)
+    return plan
+
+
+def _parse_snapshot_list(out):
+    snaps = []
+    current = None
+    snap_line = re.compile(r'^(\S+)\s+\(([^)]*)\)\s+(\S+)(?:\s+(\S+))?')
+    for raw in out.splitlines():
+        if raw.startswith((' ', '\t')):
+            extra = raw.strip()
+            if current is not None and extra:
+                current['comment'] = (
+                    '%s\n%s' % (current['comment'], extra)
+                    if current['comment'] else extra
+                )
+            continue
+        line = raw.strip()
+        if not line or line.lower() == 'no snapshots':
+            continue
+        match = snap_line.match(line)
+        if not match:
+            if current is not None:
+                current['comment'] = (
+                    '%s\n%s' % (current['comment'], line)
+                    if current['comment'] else line
+                )
+            continue
+        created = match.group(3)
+        if created in ('(null)', 'null'):
+            created = ''
+        elif match.group(4):
+            created = '%s %s' % (created.replace(':', '-', 2), match.group(4))
+        else:
+            created = created.replace(':', '-', 2)
+        current = {
+            'name': match.group(1),
+            'path': match.group(2),
+            'created': created,
+            'comment': '',
+        }
+        snaps.append(current)
+    return snaps
+
+
+def _read_text(path):
+    try:
+        with open(path) as fh:
+            return fh.read().strip()
+    except (OSError, IOError):
+        return ''
+
+
+def _snap_directory(container, snap, path=''):
+    parent = path or os.path.join(_container_path(container), 'snaps')
+    return os.path.join(parent, snap)
+
+
+def _safe_snap_directory(container, snap):
+    '''
+    Real path of snaps/<snap> if it stays under the container snaps dir.
+    '''
+
+    if not _valid_snapshot_name(snap):
+        return ''
+    base = os.path.realpath(os.path.join(_container_path(container), 'snaps'))
+    target = os.path.realpath(os.path.join(base, snap))
+    if target == base or not target.startswith(base + os.sep):
+        return ''
+    if not os.path.isdir(target):
+        return ''
+    return target
 
 
 def snapshots(container):
     '''
     List LXC snapshots for a container.
-    Returns a list of dicts: name, path, created.
+    Returns a list of dicts: name, path, created, comment.
+    Comments are read from each snapshot directory (lxc-snapshot -C
+    concatenates a comment with no trailing newline onto the next name).
     '''
 
     if not exists(container):
@@ -149,26 +443,215 @@ def snapshots(container):
     except (subprocess.CalledProcessError, OSError):
         return []
 
-    snaps = []
-    for line in out.splitlines():
-        line = line.strip()
-        if not line or line.lower() == 'no snapshots':
-            continue
-        match = re.match(r'^(\S+)\s+\(([^)]*)\)\s+(\S+)(?:\s+(\S+))?', line)
-        if not match:
-            snaps.append({'name': line.split()[0], 'path': '', 'created': ''})
-            continue
-        created = match.group(3)
-        if match.group(4):
-            created = '%s %s' % (created.replace(':', '-', 2), match.group(4))
+    snaps = _parse_snapshot_list(out)
+    for item in snaps:
+        directory = _snap_directory(container, item['name'], item.get('path'))
+        if not item.get('comment'):
+            item['comment'] = _read_text(os.path.join(directory, 'comment'))
+        if not item.get('created') or item['created'] in ('(null)', 'null'):
+            ts = _read_text(os.path.join(directory, 'ts'))
+            if ts and ts[0:4].isdigit():
+                item['created'] = ts.replace(':', '-', 2)
+            else:
+                item['created'] = ts
+    return sorted(snaps, key=lambda item: item['name'])
+
+
+def snapshot_info(container, snap):
+    '''
+    Details for one snapshot: name, path, directory, created, comment, size, rootfs.
+    '''
+
+    if not exists(container):
+        raise ContainerDoesntExists(
+            'Container {} does not exist!'.format(container))
+
+    if not _valid_snapshot_name(snap):
+        raise InvalidSnapshot(
+            'Invalid snapshot name: {}'.format(snap))
+
+    found = None
+    for item in snapshots(container):
+        if item['name'] == snap:
+            found = dict(item)
+            break
+
+    if found is None:
+        raise SnapshotDoesntExists(
+            'Snapshot {} does not exist for {}!'.format(snap, container))
+
+    directory = ''
+    if found.get('path'):
+        directory = os.path.join(found['path'], found['name'])
+    found['directory'] = directory
+    found['size'] = ''
+    found['rootfs'] = ''
+
+    if directory and os.path.isdir(directory):
+        try:
+            du = subprocess.check_output(
+                ['du', '-sh', directory],
+                stderr=subprocess.DEVNULL,
+                universal_newlines=True,
+                timeout=30)
+            found['size'] = du.split()[0]
+        except (subprocess.CalledProcessError, OSError, subprocess.TimeoutExpired):
+            pass
+
+        comment_file = os.path.join(directory, 'comment')
+        if not found.get('comment') and os.path.isfile(comment_file):
+            try:
+                with open(comment_file) as fh:
+                    found['comment'] = fh.read().strip()
+            except (OSError, IOError):
+                pass
+
+        config_path = os.path.join(directory, 'config')
+        if os.path.isfile(config_path):
+            try:
+                with open(config_path) as fh:
+                    for line in fh:
+                        line = line.strip()
+                        if '=' not in line:
+                            continue
+                        key = line.split('=', 1)[0].strip()
+                        if key in ('lxc.rootfs.path', 'lxc.rootfs'):
+                            found['rootfs'] = line.split('=', 1)[1].strip()
+            except (OSError, IOError):
+                pass
+
+    return found
+
+
+def snapshot_destroy(container, snap):
+    '''
+    Destroy one snapshot of a container (lxc-snapshot -d).
+    '''
+
+    if not exists(container):
+        raise ContainerDoesntExists(
+            'Container {} does not exist!'.format(container))
+
+    if not _valid_snapshot_name(snap):
+        raise InvalidSnapshot(
+            'Invalid snapshot name: {}'.format(snap))
+
+    names = [item['name'] for item in snapshots(container)]
+    if snap not in names:
+        # Broken leftovers (no ts / (null) date) may be missing from a
+        # confused -C listing; still allow delete if the directory exists.
+        if not _safe_snap_directory(container, snap):
+            raise SnapshotDoesntExists(
+                'Snapshot {} does not exist for {}!'.format(snap, container))
+
+    try:
+        return _lxc_output(['lxc-snapshot', '-n', container, '-d', snap])
+    except subprocess.CalledProcessError:
+        snap_dir = _safe_snap_directory(container, snap)
+        if not snap_dir:
+            raise
+        shutil.rmtree(snap_dir)
+        return ''
+
+
+def snapshot_create(container, comment=None, allow_running=False):
+    '''
+    Create a new snapshot.
+    Stopped: lxc-snapshot (consistent).
+    Running/frozen: only if snapshot_plan says it is possible and
+    allow_running is True (live copy / live snapshot).
+    '''
+
+    if not exists(container):
+        raise ContainerDoesntExists(
+            'Container {} does not exist!'.format(container))
+
+    plan = snapshot_plan(container)
+    if not plan['can']:
+        raise SnapshotNotPossible(plan['reason'])
+    if plan['need_confirm'] and not allow_running:
+        raise SnapshotNeedsConfirm(plan['reason'])
+
+    before = set(item['name'] for item in snapshots(container))
+    comment = (comment or '').strip()
+    tmp = None
+    try:
+        if plan['method'] == 'snapshot':
+            cmd = ['lxc-snapshot', '-n', container]
+            if comment:
+                fd, tmp = tempfile.mkstemp(prefix='lwp-snap-c-')
+                with os.fdopen(fd, 'w') as fh:
+                    fh.write(comment.rstrip() + '\n')
+                cmd.extend(['-c', tmp])
+            _lxc_output(cmd)
         else:
-            created = created.replace(':', '-', 2)
-        snaps.append({
-            'name': match.group(1),
-            'path': match.group(2),
-            'created': created,
-        })
-    return snaps
+            snap = _next_snap_name(container)
+            snap_parent = os.path.join(_container_path(container), 'snaps')
+            os.makedirs(snap_parent, exist_ok=True)
+            _lxc_output([
+                'lxc-copy', '-n', container, '-N', snap,
+                '-p', snap_parent, '-a', '-K', '-M',
+            ])
+            snap_dir = os.path.join(snap_parent, snap)
+            ts_path = os.path.join(snap_dir, 'ts')
+            if not os.path.isfile(ts_path):
+                with open(ts_path, 'w') as fh:
+                    fh.write(time.strftime('%Y:%m:%d %H:%M:%S'))
+            if comment:
+                with open(os.path.join(snap_dir, 'comment'), 'w') as fh:
+                    fh.write(comment.rstrip() + '\n')
+    finally:
+        if tmp:
+            try:
+                os.unlink(tmp)
+            except OSError:
+                pass
+
+    created = [item['name'] for item in snapshots(container)
+               if item['name'] not in before]
+    return created[0] if created else ''
+
+
+def snapshot_restore(container, snap, newname=None):
+    '''
+    Restore a snapshot. If newname is omitted or equals container, restore
+    in place (container must be STOPPED). Otherwise create a new container.
+    '''
+
+    if not exists(container):
+        raise ContainerDoesntExists(
+            'Container {} does not exist!'.format(container))
+
+    if not _valid_snapshot_name(snap):
+        raise InvalidSnapshot(
+            'Invalid snapshot name: {}'.format(snap))
+
+    names = [item['name'] for item in snapshots(container)]
+    if snap not in names:
+        raise SnapshotDoesntExists(
+            'Snapshot {} does not exist for {}!'.format(snap, container))
+
+    inplace = not newname or newname == container
+    if inplace:
+        state = info(container)['state']
+        if state == 'BROKEN':
+            raise SnapshotNotPossible(
+                'LXC cannot load {} — fix the config before restoring'.format(
+                    container))
+        if state != 'STOPPED':
+            raise ContainerAlreadyRunning(
+                'Stop {} before restoring a snapshot in place'.format(container))
+        newname = container
+    else:
+        if newname == 'containers' or not re.match(r'^[a-zA-Z0-9_-]+$', newname):
+            raise InvalidSnapshot(
+                'Invalid name for restored container: {}'.format(newname))
+        if exists(newname):
+            raise ContainerAlreadyExists(
+                'Container {} already created!'.format(newname))
+
+    return _lxc_output(
+        ['lxc-snapshot', '-n', container, '-r', snap, '-N', newname])
 
 
 def ls():
@@ -184,10 +667,20 @@ def ls():
         base_path = '/var/lib/lxc'
 
     try:
-        ct_list = [x for x in os.listdir(base_path)
-                   if os.path.isdir(os.path.join(base_path, x)) and os.path.exists(os.path.join(base_path, x, 'config'))]
+        names = os.listdir(base_path)
     except OSError:
-        ct_list = []
+        return []
+
+    ct_list = []
+    for name in names:
+        if not re.match(r'^[a-zA-Z0-9_-]+$', name):
+            continue
+        path = os.path.join(base_path, name)
+        if not os.path.isdir(path):
+            continue
+        if (os.path.isfile(os.path.join(path, 'config')) or
+                os.path.isdir(os.path.join(path, 'rootfs'))):
+            ct_list.append(name)
 
     return sorted(ct_list)
 
@@ -201,19 +694,27 @@ def listx():
     stopped = []
     frozen = []
     running = []
+    broken = []
 
     for container in ls():
-        state = info(container)['state']
+        try:
+            state = info(container)['state']
+        except (ContainerDoesntExists, subprocess.CalledProcessError, OSError,
+                IndexError, ValueError):
+            state = 'BROKEN'
         if state == 'RUNNING':
             running.append(container)
         elif state == 'FROZEN':
             frozen.append(container)
-        elif state == 'STOPPED':
+        elif state == 'BROKEN':
+            broken.append(container)
+        else:
             stopped.append(container)
 
     return {'RUNNING': running,
             'FROZEN': frozen,
-            'STOPPED': stopped}
+            'STOPPED': stopped,
+            'BROKEN': broken}
 
 
 def running():
