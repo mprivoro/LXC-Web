@@ -32,6 +32,7 @@
 		<div class="host-card">
 			<h3>CPU</h3>
 			<div class="host-value"><span id="cpu-usage" class="hide"></span></div>
+			<div class="host-sub" id="cpu-load"></div>
 			<div class="progress"><div class="bar" id="cpu-usage-bar" style="width:0%;"></div></div>
 		</div>
 		<div class="host-card">
@@ -186,9 +187,10 @@
 			}
 
 			function refreshCPUHost(){
-				$.get($SCRIPT_ROOT + '/_refresh_cpu_host', function(data) {
-					$('#cpu-usage').text(data +'%').fadeIn();
-					$('#cpu-usage-bar').css({'width':data +'%'});
+				$.getJSON($SCRIPT_ROOT + '/_refresh_cpu_host', function(data) {
+					$('#cpu-usage').text(fmtNum(data.percent, 1) +'% · '+ data.cpus +' CPUs').fadeIn();
+					$('#cpu-load').text('load '+ data.load1.toFixed(2) +', '+ data.load5.toFixed(2) +', '+ data.load15.toFixed(2));
+					$('#cpu-usage-bar').css({'width': Math.min(100, data.percent) +'%'});
 				});
 			}
 

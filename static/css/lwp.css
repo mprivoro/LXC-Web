@@ -283,7 +283,8 @@ legend { display: none; }
   box-shadow: var(--shadow);
 }
 .host-card h3 { font-size: 12px; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted); margin: 0 0 8px; font-weight: 650; }
-.host-card .host-value { font-size: 15px; font-weight: 600; margin-bottom: 10px; min-height: 1.4em; }
+.host-card .host-value { font-size: 15px; font-weight: 600; margin-bottom: 4px; min-height: 1.4em; }
+.host-card .host-sub { font-size: 12px; color: var(--muted); font-weight: 500; margin-bottom: 10px; min-height: 1.2em; }
 
 .hero-unit {
   background: var(--bg-elev);

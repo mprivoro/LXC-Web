@@ -257,27 +257,57 @@ def host_memory_usage():
             'total': int(total/1024)}
 
 
+def _cpu_times():
+    '''Aggregate /proc/stat cpu line: total, idle, busy (iowait counts as busy).'''
+
+    with open('/proc/stat') as f:
+        parts = f.readline().split()
+    nums = [float(x) for x in parts[1:]]
+    while len(nums) < 8:
+        nums.append(0.0)
+    user, nice, system, idle, iowait, irq, softirq, steal = nums[:8]
+    # guest/guest_nice are already included in user/nice
+    busy = user + nice + system + iowait + irq + softirq + steal
+    total = busy + idle
+    return total, idle, busy
+
+
+def host_cpu_usage():
+    '''
+    Host CPU over a short interval, plus load average.
+    iowait/irq/softirq/steal count as busy (old code ignored them, so a
+    loaded I/O-bound box could show ~90% while load was in the hundreds).
+    '''
+
+    t0, i0, _ = _cpu_times()
+    time.sleep(0.25)
+    t1, i1, _ = _cpu_times()
+    dt = t1 - t0
+    if dt <= 0:
+        percent = 0.0
+    else:
+        percent = 100.0 * (1.0 - ((i1 - i0) / dt))
+    percent = max(0.0, min(100.0, percent))
+
+    load1 = load5 = load15 = 0.0
+    try:
+        with open('/proc/loadavg') as f:
+            fields = f.read().split()
+            load1, load5, load15 = float(fields[0]), float(fields[1]), float(fields[2])
+    except (OSError, ValueError, IndexError):
+        pass
+
+    return {
+        'percent': round(percent, 1),
+        'load1': load1,
+        'load5': load5,
+        'load15': load15,
+        'cpus': os.cpu_count() or 1,
+    }
+
+
 def host_cpu_percent():
-    '''
-    returns CPU usage in percent
-    '''
-    f = open('/proc/stat', 'r')
-    line = f.readlines()[0]
-    data = line.split()
-    previdle = float(data[4])
-    prevtotal = float(data[1]) + float(data[2]) + \
-        float(data[3]) + float(data[4])
-    f.close()
-    time.sleep(0.1)
-    f = open('/proc/stat', 'r')
-    line = f.readlines()[0]
-    data = line.split()
-    idle = float(data[4])
-    total = float(data[1]) + float(data[2]) + float(data[3]) + float(data[4])
-    f.close()
-    intervaltotal = total - prevtotal
-    percent = 100 * (intervaltotal - (idle - previdle)) / intervaltotal
-    return str('%.1f' % percent)
+    return '%.1f' % host_cpu_usage()['percent']
 
 
 def host_disk_usage(partition=None):

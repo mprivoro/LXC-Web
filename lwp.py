@@ -1179,7 +1179,7 @@ def logout():
 @app.route('/_refresh_cpu_host')
 def refresh_cpu_host():
     if 'logged_in' in session:
-        return lwp.host_cpu_percent()
+        return jsonify(lwp.host_cpu_usage())
 
 
 @app.route('/_refresh_uptime_host')
