@@ -6,32 +6,50 @@
 {% block content %}
 <div class="span9">
 	{{ super() }}
-	{% if session.su == 'Yes' %}<p class="pull-right" style="margin:10px 10px 0 0;"><a class="btn btn-small btn-danger" data-toggle="modal" data-target="#reboot"><i class="icon-off icon-white"></i> Reboot</a></p>
-	{% if containers != [] %}<p class="pull-right" style="margin:10px 10px 0 0;"><a class="btn btn-small btn-inverse" data-toggle="modal" data-target="#cloneCT"> <i class="icon-repeat icon-white"></i> Clone <abbr title="Container">CT</abbr></a></p>{% endif %}
-	<p class="pull-right" style="margin:10px 10px 0 0;"><a class="btn btn-small btn-success" data-toggle="modal" data-target="#createCT"><i class="icon-plus-sign icon-white"></i> Create <abbr title="Container">CT</abbr></a></p>{% endif %}
-
-	<div class="hero-unit">
-		{% if dist == 'Unknown' %}<div class="alert alert-error">LXC Web Panel is optimized for Ubuntu 12.10 !</div>{% endif %}
-		<div class="row-fluid">
-			<div class="span4">
-				<h3>{{ dist }} (host)</h3>
-				<p>CPU usage : <span id="cpu-usage" class="hide"></span></p>
-				<div class="progress">
-					<div class="bar" id="cpu-usage-bar" style="width:0%;"></div>
-				</div>
-				<p>Memory usage : <span id="memory-usage" class="hide"></span></p>
-				<div class="progress">
-					<div class="bar" id="memory-usage-bar" style="width: 0%;"></div>
-					<abbr title="Cached memory"><div class="bar bar-success" id="memory-cache-usage-bar" style="width: 0%;"></div></abbr>
-				</div>
+	<div class="page-head">
+		<div>
+			<h1>Overview</h1>
+			<p class="page-sub">{{ dist }} host
+				<span class="ct-counts">
+				{% for status in containers_all %}
+					{% if status.containers or status.status in ('running', 'stopped') %}
+					<span class="ct-count ct-count-{{ status.status }}">{{ status.containers|count }} {{ status.status }}</span>
+					{% endif %}
+				{% endfor %}
+				</span>
+			</p>
+		</div>
+		{% if session.su == 'Yes' %}
+		<div class="page-actions">
+			<a class="btn btn-small btn-success" data-toggle="modal" data-target="#createCT"><i class="icon-plus-sign icon-white"></i> Create CT</a>
+			{% if containers != [] %}<a class="btn btn-small btn-inverse" data-toggle="modal" data-target="#cloneCT"><i class="icon-repeat icon-white"></i> Clone CT</a>{% endif %}
+			<a class="btn btn-small btn-danger" data-toggle="modal" data-target="#reboot"><i class="icon-off icon-white"></i> Reboot</a>
+		</div>
+		{% endif %}
+	</div>
+	{% if dist == 'Unknown' %}<div class="alert alert-error">Host distro was not recognized.</div>{% endif %}
+	<div class="host-stats">
+		<div class="host-card">
+			<h3>CPU</h3>
+			<div class="host-value"><span id="cpu-usage" class="hide"></span></div>
+			<div class="progress"><div class="bar" id="cpu-usage-bar" style="width:0%;"></div></div>
+		</div>
+		<div class="host-card">
+			<h3>Memory</h3>
+			<div class="host-value"><span id="memory-usage" class="hide"></span></div>
+			<div class="progress">
+				<div class="bar" id="memory-usage-bar" style="width: 0%;"></div>
+				<abbr title="Cached memory"><div class="bar bar-success" id="memory-cache-usage-bar" style="width: 0%;"></div></abbr>
 			</div>
-			<div class="span4" style="margin-top:29px;">
-				<p>Disk usage : <span id="disk-usage" class="hide"></span></p>
-				<div class="progress">
-					<div class="bar" id="disk-usage-bar" style="width: 0%;"></div>
-				</div>
-				<p>Uptime : <span id="uptime" class="hide"></span></p>
-			</div>
+		</div>
+		<div class="host-card">
+			<h3>Disk</h3>
+			<div class="host-value"><span id="disk-usage" class="hide"></span></div>
+			<div class="progress"><div class="bar" id="disk-usage-bar" style="width: 0%;"></div></div>
+		</div>
+		<div class="host-card">
+			<h3>Uptime</h3>
+			<div class="host-value"><span id="uptime" class="hide"></span></div>
 		</div>
 	</div>
 	{% for status in containers_all %}
@@ -41,23 +59,30 @@
 		</div>
 		{% endif %}
 	{% endfor %}
-	<table class="table table-bordered">
-		<thead>
-			<tr>
-				<th>Status</th>
-				<th>Name</th>
-				<th>Hostname</th>
-				<th>IP Address</th>
-				<th>Mem. usage</th>
-				<th>Snapshots</th>
-				<th>Actions</th>
-			</tr>
-		</thead>	
-		{% for status in containers_all %}
-			<tbody>
-				{% for container in status.containers %}
+	{% for status in containers_all %}
+		{% if status.containers or status.status in ('running', 'stopped') %}
+		<section class="ct-group ct-group-{{ status.status }}">
+			<div class="ct-group-head">
+				<span class="label label-{{ td[status.status] }}">{{ status.status|capitalize }}</span>
+				<span class="ct-group-n">{{ status.containers|count }}</span>
+			</div>
+			{% if status.containers %}
+			<table class="table table-bordered">
+				<thead>
+					<tr>
+						<th>Name</th>
+						<th>Hostname</th>
+						<th class="ct-ip ct-ip-v4">IPv4</th>
+						<th class="ct-ip ct-ip-v6">IPv6</th>
+						<th>Mem. usage</th>
+						<th>Disk</th>
+						<th>Snapshots</th>
+						<th class="ct-actions">Actions</th>
+					</tr>
+				</thead>
+				<tbody>
+					{% for container in status.containers %}
 					<tr class="{{ tr[status.status] }}">
-						{% if loop.first %}<td rowspan="{{ status.containers|count }}"><span class="label label-{{ td[status.status] }}">{{ status.status|capitalize }}</span></td>{% endif %}
 						<td><a href="{{ url_for('edit',container=container.name) }}" title="Click to edit {{container.name}}">{{container.name}}</a></td>
 						<td>
 							{% if container.settings.utsname %}{{ container.settings.utsname }}{% endif %}
@@ -66,12 +91,28 @@
 								<small>{{ container.error }}</small>
 							{% endif %}
 						</td>
-						<td>
+						<td class="ct-ip ct-ip-v4">
 							{% if status.status == 'broken' %}
 								—
-							{% elif container.settings.flags == 'up' %}{% if container.settings.ipv4 != '' %}{{container.settings.ipv4}}{% else %}Undefined{% endif %}{% elif container.settings.flags == 'down' %}Link Down{% endif %}
+							{% elif container.settings.flags == 'down' %}
+								Link Down
+							{% elif container.settings.ipv4_addrs %}
+								{% for addr in container.settings.ipv4_addrs %}<div class="ct-ip-line">{{ addr }}</div>{% endfor %}
+							{% else %}
+								<span class="muted">Undefined</span>
+							{% endif %}
+						</td>
+						<td class="ct-ip ct-ip-v6">
+							{% if status.status == 'broken' or container.settings.flags == 'down' %}
+								<span class="muted">—</span>
+							{% elif container.settings.ipv6_addrs %}
+								{% for addr in container.settings.ipv6_addrs %}<div class="ct-ip-line{% if addr.lower().startswith('fe80:') %} ct-ip-ll{% endif %}">{{ addr }}</div>{% endfor %}
+							{% else %}
+								<span class="muted">—</span>
+							{% endif %}
 						</td>
 						<td id="{{container.name}}">{{ render_memory_wrapper(container.memusg) }}</td>
+						<td>{{ render_disk_wrapper(container.diskusg) }}</td>
 						<td>
 							{% if container.snapshots %}
 								{% for snap in container.snapshots %}
@@ -81,8 +122,8 @@
 								<span class="muted">—</span>
 							{% endif %}
 						</td>
-						<td>
-							<div class="btn-toolbar" style="margin:8px 0;">
+						<td class="ct-actions">
+							<div class="btn-toolbar">
 								<div class="btn-group">
 									{% set start_action = {'stopped':'start','frozen':'unfreeze'} %}
 									<a class="btn btn-small{% if status.status == 'running' or status.status == 'broken' %} disabled{% endif %}"{% if status.status == 'stopped' or status.status == 'frozen' %} href="{{ url_for('action', name=container.name, action=start_action[status.status], token=session.token) }}"{% endif %}><i class="icon-play"></i> Start</a>
@@ -94,10 +135,15 @@
 							</div>
 						</td>
 					</tr>
-				{% endfor %}
-			</tbody>
-		{% endfor %}
-	</table>
+					{% endfor %}
+				</tbody>
+			</table>
+			{% else %}
+			<div class="ct-group-empty">No {{ status.status }} containers.</div>
+			{% endif %}
+		</section>
+		{% endif %}
+	{% endfor %}
 </div>
 {% include "includes/modal_snapshots.html" %}
 {% if session.su == 'Yes' %}
@@ -114,7 +160,15 @@
 
 {% macro memory_color(value) -%}{% if value != 0 %}{% if 0 <= value <= 511 %}success{% elif 512 <= value < 980 %}warning{% else %}important{% endif %}{% endif %}{%- endmacro %}
 {% macro render_memory_wrapper(value) -%}
-	{% if value != 0 %}<span class="label label-{{ memory_color(value) }}">{{ value }} MB</span>{% endif %}
+	{% if value != 0 %}<span class="label label-{{ memory_color(value) }}">{{ value|qty }} MB</span>{% endif %}
+{%- endmacro %}
+{% macro disk_color(value) -%}{% if value != 0 %}{% if value < 2048 %}success{% elif value < 10240 %}warning{% else %}important{% endif %}{% endif %}{%- endmacro %}
+{% macro render_disk_wrapper(value) -%}
+	{% if value %}
+		<span class="label label-{{ disk_color(value) }}" title="On-disk size of the container directory (rootfs, config, snapshots)">{% if value >= 1024 %}{{ (value / 1024)|qty(1) }} GB{% else %}{{ value|qty }} MB{% endif %}</span>
+	{% else %}
+		<span class="muted">—</span>
+	{% endif %}
 {%- endmacro %}
 
 {% block script %}
@@ -125,7 +179,7 @@
 <script type="text/javascript">
 			function refreshMemoryHost(){
 				$.getJSON($SCRIPT_ROOT + '/_refresh_memory_host', function(data) {
-					$('#memory-usage').text(data.used +' / '+ data.total +' MB').fadeIn();
+					$('#memory-usage').text(fmtNum(data.used) +' / '+ fmtNum(data.total) +' MB').fadeIn();
 					$('#memory-usage-bar').css({'width':data.percent+'%'});
 					$('#memory-cache-usage-bar').css({'width':data.percent_cached+'%'});
 				});
@@ -140,7 +194,7 @@
 
 			function refreshDiskHost(){
 				$.getJSON($SCRIPT_ROOT + '/_refresh_disk_host', function(data) {
-					$('#disk-usage').text(data.used +' ('+ data.free +' free)').fadeIn();
+					$('#disk-usage').text(fmtHostSize(data.used) +' ('+ fmtHostSize(data.free) +' free)').fadeIn();
 					$('#disk-usage-bar').css({'width':data.percent});
 				});
 			}
@@ -156,7 +210,7 @@
 					data = data.data;
 					for (i in data) {
 						var el = $('#'+data[i].name+' span');
-						el.text(Math.round(data[i].memusg)+' MB');
+						el.text(fmtNum(Math.round(data[i].memusg))+' MB');
 						el[0].className = el[0].className.replace(/label\-(success|warning|important)/g,'label-'+memory_color(data[i].memusg));
 					}
 				});

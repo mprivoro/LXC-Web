@@ -11,14 +11,13 @@
 		</div>
 		{% endif %}
 		<div class="edit-header">
-		<h3 class="head">{{ container|capitalize }}</small>
-			<div class="btn-group" data-toggle="buttons-radio" style="float:right;">
-				<div class="btn-group">
+		<h3 class="head">{{ container }}
+			<div class="btn-group">
 				{% set start_action = {'STOPPED':'start','FROZEN':'unfreeze'} %}
 					<a class="btn{% if infos['status'] == 'RUNNING' or infos['status'] == 'BROKEN' %} disabled{% endif %}" {% if infos['status'] == 'STOPPED' or infos['status'] == 'FROZEN' %}href="{{ url_for('action', name=container, action=start_action[infos['status']], token=session.token, from='edit') }}"{% endif %}><i class="icon-play"></i> Start</a>
 					<a class="btn{% if infos['status'] == 'STOPPED' or infos['status'] == 'BROKEN' %} disabled{% endif %}" {% if infos['status'] == 'RUNNING' or infos['status'] == 'FROZEN' %}href="{{ url_for('action', name=container, action='stop', token=session.token, from='edit') }}"{% endif %}><i class="icon-stop"></i> Stop</a>
 					<a class="btn{% if infos['status'] == 'FROZEN' or infos['status'] == 'STOPPED' or infos['status'] == 'BROKEN' %} disabled{% endif %}" {% if infos['status'] == 'RUNNING' %}href="{{ url_for('action', name=container, action='freeze', token=session.token, from='edit') }}"{% endif %}><i class="icon-pause"></i> Freeze</a>
-				</div>
+					{% if session.su == 'Yes' and infos.status == 'RUNNING' and console_available %}<a class="btn btn-inverse console-open" href="{{ url_for('container_console', container=container) }}" data-container-name="{{ container }}" title="Open attach console in a new window"><i class="icon-list-alt icon-white"></i> Console</a>{% endif %}
 			</div>
 		</h3>
 		<ul class="edit-infos">{% set span = {'RUNNING':'success','FROZEN':'info','STOPPED':'important','BROKEN':'warning'} %}
@@ -169,7 +168,10 @@
 		</div>
 		{% endif %}
 		</div>
-		<h3 class="head" style="margin-top:24px;">Snapshots{% if session.su == 'Yes' %} <a href="#" id="snapshotTakeBtn" class="btn btn-small btn-success" style="float:right;"><i class="icon-camera icon-white"></i> Take snapshot</a>{% endif %}</h3>
+		<div class="page-head" style="margin-top:24px;">
+			<h3 class="head">Snapshots</h3>
+			{% if session.su == 'Yes' %}<a href="#" id="snapshotTakeBtn" class="btn btn-small btn-success"><i class="icon-camera icon-white"></i> Take snapshot</a>{% endif %}
+		</div>
 		{% if snapshots %}
 		<table class="table table-bordered snapshots-table">
 			<thead>
@@ -208,11 +210,14 @@
 
 {% macro memory_color(value) -%}{% if value != 0 %}{% if 0 <= value <= 511 %}success{% elif 512 <= value < 980 %}warning{% else %}important{% endif %}{% endif %}{%- endmacro %}
 {% macro render_memory_wrapper(value) -%}
-	{% if value != 0 %}<span class="label label-{{ memory_color(value) }}">{{ value }} MB</span>{% endif %}
+	{% if value != 0 %}<span class="label label-{{ memory_color(value) }}">{{ value|qty }} MB</span>{% endif %}
 {%- endmacro %}
 
 {% block script %}
 	<script src="{{ url_for('static', filename='js/bootstrapSwitch.js') }}"></script>
+	{% if session.su == 'Yes' and console_available %}
+	<script src="{{ url_for('static', filename='js/lwp-console.js') }}"></script>
+	{% endif %}
 	<script type="text/javascript">
 		{% if infos.status == 'RUNNING' or infos.status == 'FROZEN' %}
 			function memory_color(value){
@@ -225,7 +230,7 @@
 			function refreshMemory(container){
 				$.getJSON($SCRIPT_ROOT + '/_refresh_memory_' + container, function(data) {
 					var el = $('#'+container+' span');
-					el.text(Math.round(data.memusg)+' MB');
+					el.text(fmtNum(Math.round(data.memusg))+' MB');
 					el[0].className = el[0].className.replace(/label\-(success|warning|important)/g,'label-'+memory_color(data.memusg));
 				});
 			}

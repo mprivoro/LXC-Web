@@ -1,8 +1,12 @@
 {% extends "layout.html" %}
 {% block title %}Users{% endblock %}
 {% block content %}
-<div class="span7">
+<div class="page-compact">
 	{{ super() }}
+	<div class="page-head">
+		<h1>Users</h1>
+		<a class="btn btn-success" data-toggle="modal" data-target="#newUser"><i class="icon-plus-sign icon-white"></i> New user</a>
+	</div>
 	<div class="accordion" id="accordion2">
 		{% for user in users %}
 			<div class="accordion-group">
@@ -34,9 +38,6 @@
 			</div>
 		{% endfor %}
 	</div>
-</div>
-<div class="span2">
-	<a class="btn btn-success btn-block" data-toggle="modal" data-target="#newUser"><i class="icon-plus-sign icon-white"></i> New user</a>
 </div>
 {% include "includes/modal_new_user.html" %}
 {% if nb_users.num > 1 %}{% include "includes/modal_delete.html" %}{% endif %}
