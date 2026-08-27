@@ -2,51 +2,23 @@
 <html lang="en">
 	<head>
 		<meta charset="utf-8">
-		<title>{% block title %}{% endblock %} - LXC Web Panel</title>
+		<title>{% block title %}{% endblock %} - LXC-Web</title>
 		<meta name="viewport" content="width=device-width, initial-scale=1.0">
-		<meta name="description" content="">
 		<meta name="author" content="Michael Privorotsky">
-
-		<link href="{{ url_for('static', filename='css/bootstrap.css') }}" rel="stylesheet">
-		<link href="{{ url_for('static', filename='css/bootstrap-responsive.min.css') }}" rel="stylesheet">
 		<link href="{{ url_for('static', filename='css/bootstrapSwitch.css') }}" rel="stylesheet">
-		<link href="{{ url_for('static', filename='css/lwp.css') }}?v=11" rel="stylesheet">
-
-		<style type="text/css">
-			html, body {height: 100%;}
-			html {overflow-y: scroll;}
-			h3.head {margin: 0;}
-			h3.head-networking, .switch-networking{display:inline-block;}
-			.switch-networking{position:relative;top:-5px;margin-left:17px;}
-			.sidebar-nav {padding: 9px 0;}
-			.table td{vertical-align: middle; padding:0px 8px;text-align: center;}
-			.hero-unit{padding: 5px 30px;}
-			.help-block ul{margin:0 0 -10px 0;}
-			.help-block li{list-style-type:none;}
-			.fix-height {line-height: 30px; min-height: 30px; height: 30px;}
-			#wrap {min-height: 100%;height: auto !important;height: 100%;margin: 0 auto -60px;}
-			#push, #footer {height: 60px;}
-			.container .credit {margin: 20px 0;}
-		</style>
-		
+		<link href="{{ url_for('static', filename='css/lwp.css') }}?v=29" rel="stylesheet">
 		<link rel="shortcut icon" href="{{ url_for('static', filename='ico/favicon.ico') }}">
-
 	</head>
-
-	<body>
-		<div id="wrap">
-
+	<body class="{% if session.logged_in %}is-app{% else %}is-login{% endif %}">
 		{% if session.logged_in %}
-			{% include "includes/nav.html" %}
+			{% include "includes/aside.html" %}
+			<div class="lwp-shell">
+				{% include "includes/nav.html" %}
 		{% endif %}
 
-		
+		<main class="{% if session.logged_in %}lwp-page{% else %}lwp-login-wrap{% endif %}">
 			<div class="container">
 				<div class="row-fluid">
-					{% if session.logged_in %}
-						{% include "includes/aside.html" %}
-					{% endif %}
-
 					{% block content %}
 						{% with messages = get_flashed_messages(with_categories=true) %}
 							{% if messages %}
@@ -61,20 +33,48 @@
 					{% endblock %}
 				</div>
 			</div>
+		</main>
 
-			<div id="push"></div>
-		</div>
-
-		<div id="footer">
-			<div class="container">
-				<p class="muted credit"><small>LXC-Web{% if 'logged_in' in session %} - <a href="{{ url_for('about') }}" class="muted">MIT License</a>{% endif %}<small></p>
+		{% if session.logged_in %}
+				<footer id="footer">
+					<p class="muted credit"><small>LXC-Web — <a href="{{ url_for('about') }}" class="muted">MIT License</a></small></p>
+				</footer>
 			</div>
-		</div>
+		{% endif %}
 
-		<!-- Le javascript
-		================================================== -->
-		<!-- Placed at the end of the document so the pages load faster -->
 		<script> var $SCRIPT_ROOT = {{ request.script_root|tojson|safe }};</script>
+		<script>
+			function fmtNum(value, decimals) {
+				var n = Number(value);
+				if (!isFinite(n)) {
+					return value;
+				}
+				decimals = decimals || 0;
+				var neg = n < 0 ? '-' : '';
+				n = Math.abs(n);
+				var intpart, frac = '';
+				if (decimals) {
+					var parts = n.toFixed(decimals).split('.');
+					intpart = parts[0];
+					frac = '.' + parts[1];
+				} else {
+					intpart = String(Math.round(n));
+				}
+				intpart = intpart.replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+				return neg + intpart + frac;
+			}
+			function fmtHostSize(value) {
+				var s = String(value == null ? '' : value);
+				var m = s.match(/^([0-9]+(?:\.[0-9]+)?)(.*)$/);
+				if (!m) {
+					return s;
+				}
+				var parts = m[1].split('.');
+				parts[0] = parts[0].replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+				var unit = (m[2] || '').trim();
+				return parts.join('.') + (unit ? ' ' + unit : '');
+			}
+		</script>
 		<script src="{{ url_for('static', filename='js/jquery-1.9.1.min.js') }}"></script>
 		<script src="{{ url_for('static', filename='js/bootstrap.min.js') }}"></script>
 		<script src="{{ url_for('static', filename='js/jqBootstrapValidation.js') }}"></script>
@@ -86,6 +86,12 @@
 								$('#home-load').fadeIn();
 						});
 						$("input").not("[type=submit]").jqBootstrapValidation();
+						$('.lwp-menu').on('click', function () {
+								$('body').toggleClass('sidebar-open');
+						});
+						$('.lwp-sidebar-backdrop').on('click', function () {
+								$('body').removeClass('sidebar-open');
+						});
 				});
 		</script>
 		{% block script %}{% endblock %}

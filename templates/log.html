@@ -1,0 +1,27 @@
+{% extends "layout.html" %}
+{% block title %}Log{% endblock %}
+{% block content %}
+<div class="span9">
+	{{ super() }}
+	<div class="page-head">
+		<div>
+			<h1>Container log</h1>
+			<p class="page-sub">{% if log.path %}<code>{{ log.path }}</code>{% if log.size %} — {{ log.size }} bytes{% endif %}{% else %}Logging disabled{% endif %}</p>
+		</div>
+		<a class="btn btn-small" href="{{ url_for('container_log') }}"><i class="icon-refresh"></i> Refresh</a>
+	</div>
+	{% if log.truncated %}<div class="alert alert-info dont-hide">Showing the tail of the file (last 256 KB).</div>{% endif %}
+	{% if log.error %}
+	<div class="alert alert-warning dont-hide">{{ log.error }}</div>
+	{% endif %}
+	<pre class="log-view">{% if log.text %}{{ log.text }}{% elif not log.error %}No entries yet.{% endif %}</pre>
+</div>
+{% endblock %}
+{% block script %}
+<script>
+	$(function () {
+		var el = document.querySelector('.log-view');
+		if (el) { el.scrollTop = el.scrollHeight; }
+	});
+</script>
+{% endblock %}

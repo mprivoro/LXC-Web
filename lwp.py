@@ -29,6 +29,7 @@
 
 import lxclite as lxc
 import lwp
+import lwp.ctlog as ctlog
 import argparse
 import subprocess
 import time
@@ -46,14 +47,20 @@ except ImportError:
     import ConfigParser as configparser
 
 # configuration
-config = configparser.SafeConfigParser()
-config.readfp(open('lwp.conf'))
+config = configparser.ConfigParser()
+with open('lwp.conf') as fh:
+    config.read_file(fh)
 
 SECRET_KEY = config.get('session', 'secret_key', raw=True)
 DEBUG = config.getboolean('global', 'debug')
 DATABASE = config.get('database', 'file')
 ADDRESS = config.get('global', 'address')
 PORT = int(config.get('global', 'port'))
+try:
+    CONTAINER_LOG = config.get('logging', 'file', raw=True).strip()
+except (configparser.NoSectionError, configparser.NoOptionError):
+    CONTAINER_LOG = 'lwp-containers.log'
+ctlog.init(CONTAINER_LOG)
 
 
 # Flask app
@@ -61,6 +68,34 @@ app = Flask(__name__)
 app.config.from_object(__name__)
 app.config['TEMPLATES_AUTO_RELOAD'] = True
 app.jinja_env.auto_reload = True
+
+
+def _group_thousands(intpart):
+    sign = ''
+    if intpart.startswith('-'):
+        sign = '-'
+        intpart = intpart[1:]
+    intpart = intpart.lstrip('0') or '0'
+    groups = []
+    while intpart:
+        groups.append(intpart[-3:])
+        intpart = intpart[:-3]
+    return sign + ','.join(reversed(groups))
+
+
+@app.template_filter('qty')
+def format_qty(value, decimals=0):
+    '''1,234 or 1,234.5 — thousands comma, decimal point.'''
+
+    try:
+        n = float(value)
+    except (TypeError, ValueError):
+        return value if value is not None else ''
+    if decimals:
+        formatted = '%.*f' % (int(decimals), n)
+        intpart, frac = formatted.split('.')
+        return '%s.%s' % (_group_thousands(intpart), frac)
+    return _group_thousands(str(int(round(n))))
 
 # Optional LXC attach console (flask-sock). If the extra is missing, the
 # panel runs exactly as before — no Console button, no WebSocket route.
@@ -129,7 +164,12 @@ def _overview_row(container, running=False):
         error = error or settings.get('config_error') or ''
 
     memusg = 0
+    diskusg = 0
     snaps = []
+    try:
+        diskusg = lwp.container_disk_usage(container)
+    except Exception:
+        diskusg = 0
     if inf.get('state') != 'BROKEN':
         try:
             memusg = lwp.memory_usage(container)
@@ -141,7 +181,12 @@ def _overview_row(container, running=False):
             snaps = []
         if running:
             try:
-                settings['ipv4'] = lxc.ip_address(container, True)
+                live = lxc.ip_addresses(container, True)
+                if live['ipv4'] or live['ipv6']:
+                    settings['ipv4_addrs'] = live['ipv4']
+                    settings['ipv6_addrs'] = live['ipv6']
+                    settings['ipv4'] = ' '.join(live['ipv4'])
+                    settings['ipv6'] = ' '.join(live['ipv6'])
             except Exception:
                 pass
     elif not error:
@@ -150,6 +195,7 @@ def _overview_row(container, running=False):
     return {
         'name': container,
         'memusg': memusg,
+        'diskusg': diskusg,
         'settings': settings,
         'snapshots': snaps,
         'error': error,
@@ -182,6 +228,7 @@ def home():
                     containers_by_status.append({
                         'name': container,
                         'memusg': 0,
+                        'diskusg': 0,
                         'settings': lwp.empty_container_settings(str(e)),
                         'snapshots': [],
                         'error': str(e),
@@ -215,6 +262,21 @@ def about():
         return render_template('about.html', containers=lxc.ls(),
                                version=lwp.check_version())
     return render_template('login.html')
+
+
+@app.route('/lwp/log')
+def container_log():
+    '''Show the container command log (su).'''
+
+    if 'logged_in' not in session:
+        return render_template('login.html')
+    if session.get('su') != 'Yes':
+        return abort(403)
+    try:
+        names = lxc.ls()
+    except Exception:
+        names = []
+    return render_template('log.html', containers=names, log=ctlog.read_log())
 
 
 @app.route('/<container>/console')
@@ -509,7 +571,8 @@ def edit(container=None):
                                config_path=config_path,
                                config_missing=config_missing,
                                config_read_error=config_read_error,
-                               config_has_bak=config_has_bak)
+                               config_has_bak=config_has_bak,
+                               console_available=CONSOLE_AVAILABLE)
     return render_template('login.html')
 
 
@@ -1143,8 +1206,11 @@ def snapshot_info():
 @app.route('/_refresh_disk_host')
 def refresh_disk_host():
     if 'logged_in' in session:
-        return jsonify(lwp.host_disk_usage(partition=config.get('overview',
-                                                                'partition')))
+        try:
+            partition = config.get('overview', 'partition')
+        except (configparser.NoSectionError, configparser.NoOptionError):
+            partition = '/'
+        return jsonify(lwp.host_disk_usage(partition=partition))
 
 
 @app.route('/_refresh_memory_<name>')

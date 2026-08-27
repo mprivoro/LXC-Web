@@ -35,11 +35,30 @@ import time
 import shutil
 
 
+def _log_cmd(cmd, rc, output=''):
+    try:
+        from lwp.ctlog import log_cmd
+        log_cmd(cmd, rc, output)
+    except Exception:
+        pass
+
+
 def _run(cmd):
     '''
     To run command easier
     '''
-    return subprocess.check_output('{}'.format(cmd), shell=True, universal_newlines=True)
+    try:
+        out = subprocess.check_output(
+            '{}'.format(cmd), shell=True,
+            universal_newlines=True, stderr=subprocess.STDOUT)
+        _log_cmd(cmd, 0, out)
+        return out
+    except subprocess.CalledProcessError as e:
+        _log_cmd(cmd, e.returncode, e.output)
+        raise
+    except Exception as e:
+        _log_cmd(cmd, -1, str(e))
+        raise
 
 
 class ContainerAlreadyExists(Exception):
@@ -173,13 +192,75 @@ def info(container):
 
     return {'state': state, 'pid': pid, 'error': ''}
 
-def ip_address(container, assume_running=False):
+def _unique_keep(seq):
+    seen = set()
+    out = []
+    for item in seq:
+        if item not in seen:
+            seen.add(item)
+            out.append(item)
+    return out
+
+
+def _parse_ip_token(token):
+    '''Classify a token as ipv4 or ipv6. Skip loopback and unspecified.'''
+
+    token = (token or '').strip()
+    if not token:
+        return None, None
+    addr = token.split()[0]
+    host = addr.split('/')[0]
+    if '%' in host:
+        host = host.split('%', 1)[0]
+    if host in ('127.0.0.1', '::1', '0.0.0.0', '::'):
+        return None, None
+    if ':' in host:
+        return 'ipv6', addr
+    if '.' in host:
+        return 'ipv4', addr
+    return None, None
+
+
+def split_ip_text(text):
+    '''Split whitespace/comma-separated addresses into IPv4 and IPv6 lists.'''
+
+    ipv4 = []
+    ipv6 = []
+    for token in (text or '').replace(',', ' ').split():
+        family, addr = _parse_ip_token(token)
+        if family == 'ipv4':
+            ipv4.append(addr)
+        elif family == 'ipv6':
+            ipv6.append(addr)
+    ipv6.sort(key=lambda a: a.lower().startswith('fe80:'))
+    return _unique_keep(ipv4), _unique_keep(ipv6)
+
+
+def merge_ip_texts(*texts):
+    ipv4, ipv6 = [], []
+    for text in texts:
+        v4, v6 = split_ip_text(text)
+        ipv4.extend(v4)
+        ipv6.extend(v6)
+    ipv6.sort(key=lambda a: a.lower().startswith('fe80:'))
+    return _unique_keep(ipv4), _unique_keep(ipv6)
+
+
+def ip_addresses(container, assume_running=False):
+    '''Live addresses from lxc-info -iH, split by family.'''
+
+    ipv4, ipv6 = [], []
     try:
         if assume_running or (info(container)['state'] == 'RUNNING'):
-            return _run('lxc-info -n %s -iH' % container)
-    except:
+            ipv4, ipv6 = split_ip_text(_run('lxc-info -n %s -iH' % container))
+    except Exception:
         pass
-    return ''
+    return {'ipv4': ipv4, 'ipv6': ipv6}
+
+
+def ip_address(container, assume_running=False):
+    addrs = ip_addresses(container, assume_running)
+    return ' '.join(addrs['ipv4'] + addrs['ipv6'])
 
 
 def _valid_snapshot_name(snap):
@@ -218,8 +299,17 @@ def _lxc_output(cmd):
     cmd = list(cmd)
     if '-l' not in cmd and '--logpriority' not in cmd:
         cmd.extend(['-l', 'ERROR'])
-    return subprocess.check_output(
-        cmd, stderr=subprocess.STDOUT, universal_newlines=True)
+    try:
+        out = subprocess.check_output(
+            cmd, stderr=subprocess.STDOUT, universal_newlines=True)
+        _log_cmd(cmd, 0, out)
+        return out
+    except subprocess.CalledProcessError as e:
+        _log_cmd(cmd, e.returncode, e.output)
+        raise
+    except Exception as e:
+        _log_cmd(cmd, -1, str(e))
+        raise
 
 
 def lxc_error_message(output):
@@ -551,6 +641,8 @@ def snapshot_destroy(container, snap):
         if not snap_dir:
             raise
         shutil.rmtree(snap_dir)
+        _log_cmd('rmtree %s' % snap_dir, 0,
+                 'snapshot leftover removed after lxc-snapshot -d failed')
         return ''
 
 

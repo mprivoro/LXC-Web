@@ -29,7 +29,8 @@
 
 import sys
 sys.path.append('../')
-from lxclite import exists, listx, ContainerDoesntExists
+from lxclite import exists, listx, ContainerDoesntExists, _container_path, \
+    merge_ip_texts
 
 import os
 import platform
@@ -60,6 +61,7 @@ cgroup['rootfs'] = 'lxc.rootfs'
 cgroup['utsname'] = 'lxc.utsname'
 cgroup['arch'] = 'lxc.arch'
 cgroup['ipv4'] = 'lxc.network.ipv4'
+cgroup['ipv6'] = 'lxc.network.ipv6'
 cgroup['memlimit'] = 'lxc.cgroup.memory.limit_in_bytes'
 cgroup['swlimit'] = 'lxc.cgroup.memory.memsw.limit_in_bytes'
 cgroup['cpus'] = 'lxc.cgroup.cpuset.cpus'
@@ -77,6 +79,7 @@ SETTING_KEYS = {
     'utsname': (cgroup['utsname'], 'lxc.uts.name'),
     'arch': (cgroup['arch'],),
     'ipv4': (cgroup['ipv4'], 'lxc.net.0.ipv4', 'lxc.net.0.ipv4.address'),
+    'ipv6': (cgroup['ipv6'], 'lxc.net.0.ipv6', 'lxc.net.0.ipv6.address'),
     'memlimit': (cgroup['memlimit'],),
     'swlimit': (cgroup['swlimit'],),
     'cpus': (cgroup['cpus'],),
@@ -297,6 +300,37 @@ def host_disk_usage(partition=None):
             'percent': usage[4]}
 
 
+_disk_cache = {}
+_DISK_TTL = 60
+
+
+def container_disk_usage(name):
+    '''
+    On-disk size of the container directory (rootfs, config, snapshots), in MB.
+    Cached for a short time so Overview does not re-run du on every refresh.
+    '''
+    now = time.time()
+    cached = _disk_cache.get(name)
+    if cached and (now - cached[0]) < _DISK_TTL:
+        return cached[1]
+
+    mb = 0
+    path = _container_path(name)
+    if os.path.isdir(path):
+        try:
+            out = subprocess.check_output(
+                ['du', '-sm', path],
+                stderr=subprocess.DEVNULL,
+                universal_newlines=True,
+                timeout=12)
+            mb = int(out.split()[0])
+        except (subprocess.CalledProcessError, ValueError, OSError,
+                subprocess.TimeoutExpired):
+            mb = 0
+    _disk_cache[name] = (now, mb)
+    return mb
+
+
 def host_uptime():
     '''
     returns a dict of the system uptime
@@ -489,6 +523,9 @@ def empty_container_settings(error=''):
         'utsname': '',
         'arch': '',
         'ipv4': '',
+        'ipv6': '',
+        'ipv4_addrs': [],
+        'ipv6_addrs': [],
         'memlimit': '',
         'swlimit': '',
         'cpus': '',
@@ -526,6 +563,9 @@ def get_container_settings(name):
     cfg['utsname'] = _config_get(config, SETTING_KEYS['utsname'])
     cfg['arch'] = _config_get(config, SETTING_KEYS['arch'])
     cfg['ipv4'] = _config_get(config, SETTING_KEYS['ipv4'])
+    cfg['ipv6'] = _config_get(config, SETTING_KEYS['ipv6'])
+    cfg['ipv4_addrs'], cfg['ipv6_addrs'] = merge_ip_texts(
+        cfg['ipv4'], cfg['ipv6'])
     memlimit = _config_get(config, SETTING_KEYS['memlimit'])
     cfg['memlimit'] = re.sub(r'[a-zA-Z]', '', memlimit) if memlimit else ''
     swlimit = _config_get(config, SETTING_KEYS['swlimit'])
@@ -617,7 +657,17 @@ def write_container_config(name, text):
             os.unlink(tmp)
         except OSError:
             pass
+        try:
+            from lwp.ctlog import log_cmd
+            log_cmd('write %s' % path, 1, str(e))
+        except Exception:
+            pass
         return False, str(e)
+    try:
+        from lwp.ctlog import log_cmd
+        log_cmd('write %s' % path, 0, 'saved %d bytes' % len(text))
+    except Exception:
+        pass
     return True, ''
 
 
@@ -633,7 +683,17 @@ def restore_container_config_backup(name):
     try:
         shutil.copy2(bak, path)
     except (OSError, IOError) as e:
+        try:
+            from lwp.ctlog import log_cmd
+            log_cmd('restore_bak %s' % path, 1, str(e))
+        except Exception:
+            pass
         return False, str(e)
+    try:
+        from lwp.ctlog import log_cmd
+        log_cmd('restore_bak %s' % path, 0, 'restored from config.bak')
+    except Exception:
+        pass
     return True, ''
 
 
@@ -725,6 +785,13 @@ def push_config_value(key, value, container=None):
 
         with open(filename, "a") as configfile:
             configfile.writelines(save)
+        try:
+            from lwp.ctlog import log_cmd
+            log_cmd('push_config %s %s=%s' % (
+                container, write_key, value if value else '(unset)'),
+                    0, 'saved')
+        except Exception:
+            pass
 
 
 def net_restart():

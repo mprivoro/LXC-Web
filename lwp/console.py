@@ -145,8 +145,20 @@ def _run_console(ws, name, lxc_mod):
             dimensions=(24, 80),
         )
     except Exception as e:
+        try:
+            from lwp.ctlog import log_cmd
+            log_cmd(['lxc-attach', '-n', name], 1, str(e))
+        except Exception:
+            pass
         _close_with(ws, 'lxc-attach failed: %s' % e)
         return
+
+    try:
+        from lwp.ctlog import log_cmd
+        log_cmd(['lxc-attach', '-n', name], 0,
+                'started pid=%s' % getattr(proc, 'pid', '?'))
+    except Exception:
+        pass
 
     _remember(name, proc)
     outgoing = queue.Queue()
@@ -211,7 +223,13 @@ def _run_console(ws, name, lxc_mod):
     finally:
         stop.set()
         _forget(name, proc)
+        pid = getattr(proc, 'pid', '?')
         _kill_proc(proc)
+        try:
+            from lwp.ctlog import log_cmd
+            log_cmd(['lxc-attach', '-n', name], 0, 'closed pid=%s' % pid)
+        except Exception:
+            pass
 
 
 def _apply_resize(proc, spec):
