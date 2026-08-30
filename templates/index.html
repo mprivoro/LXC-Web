@@ -1,7 +1,9 @@
+{# Overview: host cards + container tables (running / frozen / stopped / broken). #}
 {% set td = {'running':'success','frozen':'info','stopped':'important','broken':'warning'} %}
 {% set tr = {'running':'success','frozen':'info','stopped':'error','broken':'warning'} %}
 {% set disabled = {'running':'success','frozen':'info','stopped':'important'} %}
 {% extends "layout.html" %}
+{% from "includes/memory.html" import render_memory_wrapper %}
 {% block title %}Overview{% endblock %}
 {% block content %}
 <div class="span9">
@@ -159,11 +161,9 @@
 
 {% endblock %}
 
-{% macro memory_color(value) -%}{% if value != 0 %}{% if 0 <= value <= 511 %}success{% elif 512 <= value < 980 %}warning{% else %}important{% endif %}{% endif %}{%- endmacro %}
-{% macro render_memory_wrapper(value) -%}
-	{% if value != 0 %}<span class="label label-{{ memory_color(value) }}">{{ value|qty }} MB</span>{% endif %}
-{%- endmacro %}
+{# disk_color: Bootstrap label class from on-disk size in MB. #}
 {% macro disk_color(value) -%}{% if value != 0 %}{% if value < 2048 %}success{% elif value < 10240 %}warning{% else %}important{% endif %}{% endif %}{%- endmacro %}
+{# render_disk_wrapper: GB if >= 1024 MB, else MB. #}
 {% macro render_disk_wrapper(value) -%}
 	{% if value %}
 		<span class="label label-{{ disk_color(value) }}" title="On-disk size of the container directory (rootfs, config, snapshots)">{% if value >= 1024 %}{{ (value / 1024)|qty(1) }} GB{% else %}{{ value|qty }} MB{% endif %}</span>
@@ -179,6 +179,7 @@
 {% endif %}
 <script type="text/javascript">
 			function refreshMemoryHost(){
+				/** Host RAM used/total and bars (including cache). */
 				$.getJSON($SCRIPT_ROOT + '/_refresh_memory_host', function(data) {
 					$('#memory-usage').text(fmtNum(data.used) +' / '+ fmtNum(data.total) +' MB').fadeIn();
 					$('#memory-usage-bar').css({'width':data.percent+'%'});
@@ -187,6 +188,7 @@
 			}
 
 			function refreshCPUHost(){
+				/** Host CPU % , load averages, bar. */
 				$.getJSON($SCRIPT_ROOT + '/_refresh_cpu_host', function(data) {
 					$('#cpu-usage').text(fmtNum(data.percent, 1) +'% · '+ data.cpus +' CPUs').fadeIn();
 					$('#cpu-load').text('load '+ data.load1.toFixed(2) +', '+ data.load5.toFixed(2) +', '+ data.load15.toFixed(2));
@@ -195,6 +197,7 @@
 			}
 
 			function refreshDiskHost(){
+				/** Host disk used/free from [overview] partition. */
 				$.getJSON($SCRIPT_ROOT + '/_refresh_disk_host', function(data) {
 					$('#disk-usage').text(fmtHostSize(data.used) +' ('+ fmtHostSize(data.free) +' free)').fadeIn();
 					$('#disk-usage-bar').css({'width':data.percent});
@@ -202,12 +205,14 @@
 			}
 
 			function refreshUptimeHost(){
+				/** Host uptime text. */
 				$.getJSON($SCRIPT_ROOT + '/_refresh_uptime_host', function(data) {
 					$('#uptime').text(data.day +' day(s) '+ data.time).fadeIn();
 				});
 			}
 
 			function refreshMemoryContainers(){
+				/** Live RAM labels on running CT rows. */
 				$.getJSON($SCRIPT_ROOT + '/_refresh_memory_containers', function(data) {
 					data = data.data;
 					for (i in data) {
@@ -218,17 +223,8 @@
 				});
 			}
 
-			function memory_color(value){
-				if(value != 0)
-					if ('0' <= value && value <= '512')
-						 return 'success';
-					else if ('512' <= value && value < '1024')
-						return 'warning';
-					else
-						return 'important';
-			}
-
 			function refresh(){
+				/** Poll all host cards + CT memory (every 15s). */
 				$('#home-load').fadeIn();
 				refreshMemoryHost();
 				refreshCPUHost();

@@ -2,6 +2,9 @@
  * Copyright (c) 2026 Michael Privorotsky
  * Based on LXC Web Panel, Copyright (c) 2013 Antoine TANZILLI, Élie DELOUMEAU
  * MIT License
+ *
+ * All panel styling: tokens, app shell (sidebar/topbar), Bootstrap 2-compatible
+ * classes, Overview/Edit/login, console page, host metric cards.
  */
 
 :root {

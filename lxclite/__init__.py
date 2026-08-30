@@ -27,6 +27,9 @@
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 # THE SOFTWARE.
 
+# Classic LXC CLI wrapper (lxc-create, lxc-start, lxc-snapshot, …).
+# Containers live under /var/lib/lxc (or ~/.local/share/lxc). Not LXD/Incus.
+
 import subprocess
 import os
 import re
@@ -36,6 +39,8 @@ import shutil
 
 
 def _log_cmd(cmd, rc, output=''):
+    '''Forward the command to the panel log; never raise.'''
+
     try:
         from lwp.ctlog import log_cmd
         log_cmd(cmd, rc, output)
@@ -44,9 +49,8 @@ def _log_cmd(cmd, rc, output=''):
 
 
 def _run(cmd):
-    '''
-    To run command easier
-    '''
+    '''Run a shell command, log it, raise CalledProcessError on failure.'''
+
     try:
         out = subprocess.check_output(
             '{}'.format(cmd), shell=True,
@@ -62,49 +66,54 @@ def _run(cmd):
 
 
 class ContainerAlreadyExists(Exception):
+    '''Create/clone name is already taken.'''
     pass
 
 
 class ContainerDoesntExists(Exception):
+    '''No such container directory.'''
     pass
 
 
 class ContainerAlreadyRunning(Exception):
+    '''Start/restore refused because the CT is not stopped.'''
     pass
 
 
 class ContainerNotRunning(Exception):
+    '''Stop/freeze refused because the CT is already stopped.'''
     pass
 
 
 class SnapshotDoesntExists(Exception):
+    '''Named snapshot is not on this container.'''
     pass
 
 
 class InvalidSnapshot(Exception):
+    '''Snapshot or restore name failed the safety check.'''
     pass
 
 
 class SnapshotNotPossible(Exception):
+    '''Storage/state combination cannot snapshot.'''
     pass
 
 
 class SnapshotNeedsConfirm(Exception):
+    '''Live snapshot needs the user to confirm allow_running.'''
     pass
 
 
 def exists(container):
-    '''
-    Check if container exists
-    '''
+    '''True if this name is in ls() (directory + config/rootfs).'''
+
 
     return (container in ls())
 
 def create(container, template='ubuntu', storage=None, xargs=None):
-    '''
-    Create a container (without all options)
-    Default template: Ubuntu
-    '''
+    '''lxc-create -n name -t template, optional -B storage and extra args.'''
+
 
     if exists(container):
         raise ContainerAlreadyExists(
@@ -123,9 +132,8 @@ def create(container, template='ubuntu', storage=None, xargs=None):
 
 
 def clone(orig=None, new=None, snapshot=False):
-    '''
-    Clone a container (without all options)
-    '''
+    '''lxc-clone orig -> new. snapshot=True adds -s.'''
+
 
     if orig and new:
         if exists(new):
@@ -193,6 +201,8 @@ def info(container):
     return {'state': state, 'pid': pid, 'error': ''}
 
 def _unique_keep(seq):
+    '''Dedupe a list, keep first-seen order.'''
+
     seen = set()
     out = []
     for item in seq:
@@ -237,6 +247,8 @@ def split_ip_text(text):
 
 
 def merge_ip_texts(*texts):
+    '''Union of IPv4/IPv6 tokens from several config/live strings.'''
+
     ipv4, ipv6 = [], []
     for text in texts:
         v4, v6 = split_ip_text(text)
@@ -259,6 +271,8 @@ def ip_addresses(container, assume_running=False):
 
 
 def ip_address(container, assume_running=False):
+    '''Live addresses as one space-separated string (legacy).'''
+
     addrs = ip_addresses(container, assume_running)
     return ' '.join(addrs['ipv4'] + addrs['ipv6'])
 
@@ -277,12 +291,16 @@ def _valid_snapshot_name(snap):
 
 
 def _container_path(container):
+    '''Host directory for this CT: /var/lib/lxc/<name> (or user LXC home).'''
+
     if os.geteuid():
         return os.path.expanduser('~/.local/share/lxc/%s' % container)
     return os.path.join('/var/lib/lxc', container)
 
 
 def _next_snap_name(container):
+    '''Next unused snapN name for a live copy.'''
+
     names = set(item['name'] for item in snapshots(container))
     n = 0
     while 'snap%d' % n in names:
@@ -444,6 +462,8 @@ def snapshot_plan(container):
 
 
 def _parse_snapshot_list(out):
+    '''Parse `lxc-snapshot -L` text into name/path/created/comment dicts.'''
+
     snaps = []
     current = None
     snap_line = re.compile(r'^(\S+)\s+\(([^)]*)\)\s+(\S+)(?:\s+(\S+))?')
@@ -485,6 +505,8 @@ def _parse_snapshot_list(out):
 
 
 def _read_text(path):
+    '''Read a small file, strip, or '' if missing.'''
+
     try:
         with open(path) as fh:
             return fh.read().strip()
@@ -493,6 +515,8 @@ def _read_text(path):
 
 
 def _snap_directory(container, snap, path=''):
+    '''snaps/<snap> under the container (or under path from lxc-snapshot -L).'''
+
     parent = path or os.path.join(_container_path(container), 'snaps')
     return os.path.join(parent, snap)
 
@@ -810,21 +834,26 @@ def listx():
 
 
 def running():
+    '''Names currently RUNNING.'''
+
     return listx()['RUNNING']
 
 
 def frozen():
+    '''Names currently FROZEN.'''
+
     return listx()['FROZEN']
 
 
 def stopped():
+    '''Names currently STOPPED (not broken).'''
+
     return listx()['STOPPED']
 
 
 def start(container):
-    '''
-    Starts a container
-    '''
+    '''lxc-start -dn (daemon, no console).'''
+
 
     if not exists(container):
         raise ContainerDoesntExists(
@@ -838,9 +867,8 @@ def start(container):
 
 
 def stop(container):
-    '''
-    Stops a container
-    '''
+    '''lxc-stop.'''
+
 
     if not exists(container):
         raise ContainerDoesntExists(
@@ -854,9 +882,8 @@ def stop(container):
 
 
 def freeze(container):
-    '''
-    Freezes a container
-    '''
+    '''lxc-freeze (pause a running CT).'''
+
 
     if not exists(container):
         raise ContainerDoesntExists(
@@ -870,9 +897,8 @@ def freeze(container):
 
 
 def unfreeze(container):
-    '''
-    Unfreezes a container
-    '''
+    '''lxc-unfreeze.'''
+
 
     if not exists(container):
         raise ContainerDoesntExists(
@@ -886,9 +912,8 @@ def unfreeze(container):
 
 
 def destroy(container):
-    '''
-    Destroys a container
-    '''
+    '''lxc-destroy (no snapshots prompt — caller must confirm in the UI).'''
+
 
     if not exists(container):
         raise ContainerDoesntExists(
@@ -898,9 +923,8 @@ def destroy(container):
 
 
 def checkconfig():
-    '''
-    Returns the output of lxc-checkconfig (colors cleared)
-    '''
+    '''lxc-checkconfig lines with ANSI colors stripped.'''
+
 
     out = _run('lxc-checkconfig')
 
@@ -913,6 +937,8 @@ def checkconfig():
 
 
 def cgroup(container, key, value):
+    '''lxc-cgroup -n name key value (live cgroup write).'''
+
     if not exists(container):
         raise ContainerDoesntExists(
             'Container {} does not exist!'.format(container))

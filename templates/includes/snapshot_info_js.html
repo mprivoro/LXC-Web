@@ -1,9 +1,12 @@
+{# JS for the snapshot info modal (GET /_snapshot_info). Included inside a script tag. #}
 		function snapshotField(label, value){
+			/** Escape and wrap one snapshot field as dt/dd. */
 			var safe = $('<div>').text(value || '—').html();
 			return '<dt>'+label+'</dt><dd>'+safe+'</dd>';
 		}
 
 		function showSnapshotInfo(name, snap){
+			/** Fetch and show one snapshot in the modal. */
 			$('#snapshotInfoLabel').text(name+' / '+snap);
 			$('#snapshotInfoLoading').show();
 			$('#snapshotInfoBody').addClass('hide').empty();

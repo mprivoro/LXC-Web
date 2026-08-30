@@ -27,13 +27,16 @@
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 # THE SOFTWARE.
 
+# Container config I/O, cgroup memory, templates/images, lxc-net settings.
+# Host metrics are re-exported from lwp.host so lwp.host_cpu_usage() still works.
+# This is not the Flask app (that is lwp.py).
+
 import sys
 sys.path.append('../')
 from lxclite import exists, listx, ContainerDoesntExists, _container_path, \
     merge_ip_texts
 
 import os
-import platform
 import re
 import shutil
 import stat
@@ -48,8 +51,18 @@ try:
 except ImportError:
     import ConfigParser as configparser
 
+from lwp.host import (
+    check_ubuntu,
+    host_cpu_percent,
+    host_cpu_usage,
+    host_disk_usage,
+    host_memory_usage,
+    host_uptime,
+)
+
 
 class CalledProcessError(Exception):
+    '''Raised when a host command (e.g. lxc-net restart) fails.'''
     pass
 
 cgroup = {}
@@ -96,6 +109,8 @@ REPEATABLE_KEYS = (
 
 
 def FakeSection(fp):
+    '''Wrap a section-less LXC file so ConfigParser can read it.'''
+
     content = u"[DEFAULT]\n%s" % fp.read()
 
     return StringIO(content)
@@ -117,6 +132,8 @@ def _make_parser():
 
 
 def _load_unsectioned(filename):
+    '''Parse an LXC or lxc-net file that has no INI sections.'''
+
     parser = _make_parser()
     with open(filename) as fp:
         wrapped = FakeSection(fp)
@@ -128,6 +145,8 @@ def _load_unsectioned(filename):
 
 
 def _config_get(config, keys, default=''):
+    '''First matching key from aliases, or default.'''
+
     if isinstance(keys, str):
         keys = (keys,)
     for key in keys:
@@ -155,6 +174,8 @@ def _resolve_config_key(config, key):
 
 
 def DelSection(filename=None):
+    '''Strip the fake [DEFAULT] line ConfigParser writes back.'''
+
     if filename:
         load = open(filename, 'r')
         read = load.readlines()
@@ -170,9 +191,8 @@ def DelSection(filename=None):
 
 
 def file_exist(filename):
-    '''
-    checks if a given file exist or not
-    '''
+    '''True if filename can be opened for reading.'''
+
     try:
         with open(filename) as f:
             f.close()
@@ -182,9 +202,8 @@ def file_exist(filename):
 
 
 def ls_auto():
-    '''
-    returns a list of autostart containers
-    '''
+    '''Names of autostart drop-ins in /etc/lxc/auto/.'''
+
     try:
         auto_list = os.listdir('/etc/lxc/auto/')
     except OSError:
@@ -193,13 +212,14 @@ def ls_auto():
 
 
 def _is_cgroup_v2():
+    '''Host uses cgroup v2 (memory.current vs memory.usage_in_bytes).'''
+
     return os.path.exists('/sys/fs/cgroup/cgroup.controllers')
 
 
 def memory_usage(name):
-    '''
-    returns memory usage in MB
-    '''
+    '''Guest RAM in MB via lxc-cgroup, or 0 if not running/frozen.'''
+
     if not exists(name):
         raise ContainerDoesntExists(
             "The container (%s) does not exist!" % name)
@@ -225,109 +245,6 @@ def memory_usage(name):
         except (subprocess.CalledProcessError, ValueError, OSError):
             continue
     return 0
-
-
-def host_memory_usage():
-    '''
-    returns a dict of host memory usage values
-                    {'percent': int((used/total)*100),
-                    'percent_cached':int((cached/total)*100),
-                    'used': int(used/1024),
-                    'total': int(total/1024)}
-    '''
-    out = open('/proc/meminfo')
-    for line in out:
-        if 'MemTotal:' == line.split()[0]:
-            split = line.split()
-            total = float(split[1])
-        if 'MemFree:' == line.split()[0]:
-            split = line.split()
-            free = float(split[1])
-        if 'Buffers:' == line.split()[0]:
-            split = line.split()
-            buffers = float(split[1])
-        if 'Cached:' == line.split()[0]:
-            split = line.split()
-            cached = float(split[1])
-    out.close()
-    used = (total - (free + buffers + cached))
-    return {'percent': int((used/total)*100),
-            'percent_cached': int(((cached)/total)*100),
-            'used': int(used/1024),
-            'total': int(total/1024)}
-
-
-def _cpu_times():
-    '''Aggregate /proc/stat cpu line: total, idle, busy (iowait counts as busy).'''
-
-    with open('/proc/stat') as f:
-        parts = f.readline().split()
-    nums = [float(x) for x in parts[1:]]
-    while len(nums) < 8:
-        nums.append(0.0)
-    user, nice, system, idle, iowait, irq, softirq, steal = nums[:8]
-    # guest/guest_nice are already included in user/nice
-    busy = user + nice + system + iowait + irq + softirq + steal
-    total = busy + idle
-    return total, idle, busy
-
-
-def host_cpu_usage():
-    '''
-    Host CPU over a short interval, plus load average.
-    iowait/irq/softirq/steal count as busy (old code ignored them, so a
-    loaded I/O-bound box could show ~90% while load was in the hundreds).
-    '''
-
-    t0, i0, _ = _cpu_times()
-    time.sleep(0.25)
-    t1, i1, _ = _cpu_times()
-    dt = t1 - t0
-    if dt <= 0:
-        percent = 0.0
-    else:
-        percent = 100.0 * (1.0 - ((i1 - i0) / dt))
-    percent = max(0.0, min(100.0, percent))
-
-    load1 = load5 = load15 = 0.0
-    try:
-        with open('/proc/loadavg') as f:
-            fields = f.read().split()
-            load1, load5, load15 = float(fields[0]), float(fields[1]), float(fields[2])
-    except (OSError, ValueError, IndexError):
-        pass
-
-    return {
-        'percent': round(percent, 1),
-        'load1': load1,
-        'load5': load5,
-        'load15': load15,
-        'cpus': os.cpu_count() or 1,
-    }
-
-
-def host_cpu_percent():
-    return '%.1f' % host_cpu_usage()['percent']
-
-
-def host_disk_usage(partition=None):
-    '''
-    returns a dict of disk usage values
-                    {'total': usage[1],
-                    'used': usage[2],
-                    'free': usage[3],
-                    'percent': usage[4]}
-    '''
-    if not partition:
-        partition = '/'
-
-    usage = subprocess.check_output(['df -h %s' % partition],
-                                    universal_newlines=True,
-                                    shell=True).split('\n')[1].split()
-    return {'total': usage[1],
-            'used': usage[2],
-            'free': usage[3],
-            'percent': usage[4]}
 
 
 _disk_cache = {}
@@ -361,59 +278,9 @@ def container_disk_usage(name):
     return mb
 
 
-def host_uptime():
-    '''
-    returns a dict of the system uptime
-            {'day': days,
-            'time': '%d:%02d' % (hours,minutes)}
-    '''
-    f = open('/proc/uptime')
-    uptime = int(f.readlines()[0].split('.')[0])
-    minutes = int(uptime / 60) % 60
-    hours = int(uptime / 3600) % 24
-    days = float('%.2f' % (uptime / 86400.0))
-    f.close()
-    return {'day': days,
-            'time': '%d:%02d' % (hours, minutes)}
-
-
-def check_ubuntu():
-    '''
-    return the System version
-    '''
-    info = {}
-    try:
-        info = platform.freedesktop_os_release()
-    except AttributeError:
-        try:
-            with open('/etc/os-release') as f:
-                for line in f:
-                    line = line.strip()
-                    if not line or line.startswith('#') or '=' not in line:
-                        continue
-                    key, val = line.split('=', 1)
-                    info[key] = val.strip().strip('"')
-        except (IOError, OSError):
-            pass
-    except OSError:
-        pass
-
-    if info:
-        name = info.get('NAME') or info.get('ID') or 'Unknown'
-        version = info.get('VERSION_ID') or info.get('VERSION') or ''
-        return ('%s %s' % (name, version)).strip()
-
-    try:
-        dist = platform.linux_distribution()
-        return ('%s %s' % (dist[0], dist[1])).strip() or 'Unknown'
-    except AttributeError:
-        return 'Unknown'
-
-
 def get_templates_list():
-    '''
-    returns a sorted lxc templates list
-    '''
+    '''Template names from /usr/share/lxc/templates (lxc- prefix stripped).'''
+
     templates = []
     path = None
 
@@ -501,15 +368,16 @@ def parse_create_source(source):
 
 
 def check_version():
-    '''
-    returns the local LWP version (no remote lookup)
-    '''
+    '''Local version from the version file (no network).'''
+
     with open('version') as f:
         current = float(f.read().strip())
     return {'current': current,
             'latest': current}
 
 def get_net_settings_fname():
+    '''Path of lxc-net defaults, or None if neither file exists.'''
+
     filename = '/etc/default/lxc-net'
     if not file_exist(filename):
         filename = '/etc/default/lxc'
@@ -519,9 +387,8 @@ def get_net_settings_fname():
 
 
 def get_net_settings():
-    '''
-    returns a dict of all known settings for LXC networking
-    '''
+    '''Bridge/DHCP vars from /etc/default/lxc-net (or lxc). False if missing.'''
+
     filename = get_net_settings_fname()
     if not filename:
         return False
@@ -566,9 +433,8 @@ def empty_container_settings(error=''):
 
 
 def get_container_settings(name):
-    '''
-    returns a dict of all utils settings for a container
-    '''
+    '''Parsed CT config for the edit form (legacy + modern key names).'''
+
 
     if os.geteuid():
         filename = os.path.expanduser('~/.local/share/lxc/%s/config' % name)
@@ -728,9 +594,8 @@ def restore_container_config_backup(name):
 
 
 def push_net_value(key, value):
-    '''
-    replace a var in the lxc-net config file
-    '''
+    '''Write one KEY="value" into the lxc-net defaults file.'''
+
     filename = get_net_settings_fname()
 
     if filename:
@@ -764,9 +629,8 @@ def push_net_value(key, value):
 
 
 def push_config_value(key, value, container=None):
-    '''
-    replace a var in a container config file
-    '''
+    '''Set or unset one key in a container config (keeps duplicate includes).'''
+
 
     def save_repeatable_options(filename=None):
         '''
@@ -825,9 +689,8 @@ def push_config_value(key, value, container=None):
 
 
 def net_restart():
-    '''
-    restarts LXC networking
-    '''
+    '''Restart the lxc-net service. 0 on success, 1 on failure.'''
+
     cmd = ['/usr/sbin/service lxc-net restart']
     try:
         subprocess.check_call(cmd, shell=True)
