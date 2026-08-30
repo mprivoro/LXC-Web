@@ -1,4 +1,6 @@
+{# Edit one container: start/stop, limits, network, raw config, snapshots. #}
 {% extends "layout.html" %}
+{% from "includes/memory.html" import render_memory_wrapper %}
 {% block title %}{{container|capitalize}}{% endblock %}
 {% block content %}
 	<div class="span9">
@@ -208,11 +210,6 @@
 	{% include "includes/modal_snapshots.html" %}
 {% endblock %}
 
-{% macro memory_color(value) -%}{% if value != 0 %}{% if 0 <= value <= 511 %}success{% elif 512 <= value < 980 %}warning{% else %}important{% endif %}{% endif %}{%- endmacro %}
-{% macro render_memory_wrapper(value) -%}
-	{% if value != 0 %}<span class="label label-{{ memory_color(value) }}">{{ value|qty }} MB</span>{% endif %}
-{%- endmacro %}
-
 {% block script %}
 	<script src="{{ url_for('static', filename='js/bootstrapSwitch.js') }}"></script>
 	{% if session.su == 'Yes' and console_available %}
@@ -220,14 +217,8 @@
 	{% endif %}
 	<script type="text/javascript">
 		{% if infos.status == 'RUNNING' or infos.status == 'FROZEN' %}
-			function memory_color(value){
-				if(value != 0)
-					if ('0' <= value && value <= '512') return 'success';
-					else if ('512' <= value && value < '1024') return 'warning';
-					else return 'important';
-			}
-
 			function refreshMemory(container){
+				/** Live RAM label on the Edit header. */
 				$.getJSON($SCRIPT_ROOT + '/_refresh_memory_' + container, function(data) {
 					var el = $('#'+container+' span');
 					el.text(fmtNum(Math.round(data.memusg))+' MB');
@@ -252,6 +243,7 @@
 		});
 
 		function updateMemInput(elem, value, mem_total){
+			/** Slider -> number box; at max show Unlimited. */
 			if (value < mem_total) {
 				$('#' + elem).val(value).show().next('.help-inline').text('MB');
 			}
@@ -261,6 +253,7 @@
 		};
 
 		function updateMemSlider(elem, value){
+			/** Number box -> slider. */
 			$('#' + elem).val(value);
 		};
 

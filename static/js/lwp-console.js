@@ -8,6 +8,7 @@
 	var socket = null;
 
 	function closeConsole() {
+		/** Tear down the WebSocket and xterm instance. */
 		if (socket) {
 			try { socket.close(); } catch (e) {}
 			socket = null;
@@ -21,6 +22,7 @@
 	}
 
 	function sendResize() {
+		/** Tell the PTY the current cols x rows. */
 		if (!term || !socket || socket.readyState !== 1) {
 			return;
 		}
@@ -28,18 +30,21 @@
 	}
 
 	function sendRaw(data) {
+		/** Write bytes to lxc-attach (keys, paste, toolbar). */
 		if (socket && socket.readyState === 1 && data) {
 			socket.send(data);
 		}
 	}
 
 	function focusTerm() {
+		/** Focus the terminal so typing goes to the guest. */
 		if (term) {
 			term.focus();
 		}
 	}
 
 	function isXtermTarget(el) {
+		/** True if the event is already inside the xterm widget. */
 		if (!el) {
 			return false;
 		}
@@ -57,6 +62,7 @@
 	}
 
 	function shellKeySequence(e) {
+		/** Ctrl/Alt combos the browser would steal (W, K, R). */
 		var ctrl = e.ctrlKey || e.metaKey;
 		var alt = e.altKey;
 		var code = e.code || '';
@@ -76,6 +82,7 @@
 	}
 
 	function copySelection() {
+		/** Copy xterm selection to the clipboard. */
 		if (!term || typeof term.getSelection !== 'function') {
 			return false;
 		}
@@ -101,6 +108,7 @@
 	}
 
 	function pasteText(text) {
+		/** Send clipboard text into the guest. */
 		if (!text) {
 			return;
 		}
@@ -112,6 +120,7 @@
 	}
 
 	function trapConsoleInput() {
+		/** Capture keys/paste at window so the browser does not eat Ctrl-W etc. */
 		window.addEventListener('keydown', function (e) {
 			var ctrl = e.ctrlKey || e.metaKey;
 			var seq = shellKeySequence(e);
@@ -179,6 +188,7 @@
 	}
 
 	function openConsole(name) {
+		/** Open WebSocket /console/<name> and attach xterm.js. */
 		closeConsole();
 		term = new Terminal({
 			cursorBlink: true,
@@ -227,6 +237,7 @@
 	}
 
 	function popupFeatures() {
+		/** window.open features string for the console popup. */
 		var width = Math.max(720, Math.min(1100, window.screen.availWidth - 80));
 		var height = Math.max(420, Math.min(720, window.screen.availHeight - 80));
 		return 'toolbar=no,location=no,menubar=no,status=no,scrollbars=no,resizable=yes,width='

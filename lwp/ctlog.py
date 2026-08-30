@@ -28,10 +28,14 @@ def init(path):
 
 
 def enabled():
+    '''True if a log path was set and the directory could be used.'''
+
     return bool(_path)
 
 
 def log_path():
+    '''Absolute or relative path of the log file, or empty if disabled.'''
+
     return _path or ''
 
 
@@ -73,6 +77,8 @@ def read_log(max_bytes=256 * 1024):
 
 
 def cmd_str(cmd):
+    '''Flatten a command list/tuple to one line for the log.'''
+
     if isinstance(cmd, (list, tuple)):
         return ' '.join(str(part) for part in cmd)
     return str(cmd)
@@ -98,6 +104,8 @@ def is_readonly(cmd):
 
 
 def log_cmd(cmd, rc, output=''):
+    '''Append one command block unless it is a read-only poll.'''
+
     if not _path or is_readonly(cmd):
         return
     if output is None:
@@ -132,6 +140,8 @@ def log_cmd(cmd, rc, output=''):
 
 
 def _user():
+    '''Session username if this ran inside a request, else '-'.'''
+
     try:
         from flask import has_request_context, session
         if has_request_context():

@@ -36,10 +36,14 @@ def register_console(sock, lxc_mod):
 
     @sock.route('/console/<name>')
     def lxc_console(ws, name):
+        '''WebSocket handler: PTY to lxc-attach for this container.'''
+
         _run_console(ws, name, lxc_mod)
 
 
 def _install_cleanup_hooks():
+    '''Kill leftover attach processes on SIGTERM/INT/HUP and atexit.'''
+
     global _signals_installed
     if _signals_installed:
         return
@@ -54,6 +58,8 @@ def _install_cleanup_hooks():
 
 
 def _on_exit_signal(signum, frame, prev):
+    '''Kill attach sessions, then chain to the previous handler.'''
+
     _kill_all()
     if callable(prev) and prev not in (signal.SIG_DFL, signal.SIG_IGN):
         prev(signum, frame)
@@ -63,6 +69,8 @@ def _on_exit_signal(signum, frame, prev):
 
 
 def _kill_all():
+    '''Stop every tracked lxc-attach (panel shutdown).'''
+
     with _sessions_lock:
         procs = list(_sessions.values())
         _sessions.clear()
@@ -107,6 +115,8 @@ def _kill_proc(proc):
 
 
 def _remember(name, proc):
+    '''Track this attach; kill any previous one for the same CT.'''
+
     with _sessions_lock:
         old = _sessions.get(name)
         _sessions[name] = proc
@@ -115,12 +125,16 @@ def _remember(name, proc):
 
 
 def _forget(name, proc):
+    '''Drop this proc from the map if it is still the current one.'''
+
     with _sessions_lock:
         if _sessions.get(name) is proc:
             _sessions.pop(name, None)
 
 
 def _run_console(ws, name, lxc_mod):
+    '''su-only: spawn lxc-attach, copy PTY bytes to the socket and back.'''
+
     if 'logged_in' not in session or session.get('su') != 'Yes':
         _close_with(ws, 'Not allowed.')
         return
@@ -165,6 +179,8 @@ def _run_console(ws, name, lxc_mod):
     stop = threading.Event()
 
     def pump_pty():
+        '''Background thread: read PTY output into the outgoing queue.'''
+
         fd = proc.fd
         while not stop.is_set() and proc.isalive():
             try:
@@ -233,6 +249,8 @@ def _run_console(ws, name, lxc_mod):
 
 
 def _apply_resize(proc, spec):
+    '''Apply COLSxROWS from the browser (prefix already stripped).'''
+
     try:
         cols_s, rows_s = spec.split('x', 1)
         cols = int(cols_s)
@@ -248,6 +266,8 @@ def _apply_resize(proc, spec):
 
 
 def _close_with(ws, text):
+    '''Send a last line and close the WebSocket.'''
+
     try:
         ws.send(text + '\r\n')
     except Exception:
