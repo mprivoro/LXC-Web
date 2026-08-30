@@ -1,9 +1,5 @@
 {# Overview: host cards + container tables (running / frozen / stopped / broken). #}
-{% set td = {'running':'success','frozen':'info','stopped':'important','broken':'warning'} %}
-{% set tr = {'running':'success','frozen':'info','stopped':'error','broken':'warning'} %}
-{% set disabled = {'running':'success','frozen':'info','stopped':'important'} %}
 {% extends "layout.html" %}
-{% from "includes/memory.html" import render_memory_wrapper %}
 {% block title %}Overview{% endblock %}
 {% block content %}
 <div class="span9">
@@ -12,22 +8,20 @@
 		<div>
 			<h1>Overview</h1>
 			<p class="page-sub">{{ dist }} host
-				<span class="ct-counts">
-				{% for status in containers_all %}
-					{% if status.containers or status.status in ('running', 'stopped') %}
-					<span class="ct-count ct-count-{{ status.status }}">{{ status.containers|count }} {{ status.status }}</span>
-					{% endif %}
-				{% endfor %}
+				<span class="ct-counts" id="ct-counts">
+				{% include "includes/overview_counts.html" %}
 				</span>
 			</p>
 		</div>
-		{% if session.su == 'Yes' %}
 		<div class="page-actions">
+			<button type="button" class="btn btn-small" id="overview-autorefresh" aria-pressed="true" title="Reload host stats and containers on an interval from lwp.conf">Auto refresh</button>
+			<button type="button" class="btn btn-small" id="overview-refresh" title="Refresh host stats and containers now"><i class="icon-refresh"></i> Refresh</button>
+			{% if session.su == 'Yes' %}
 			<a class="btn btn-small btn-success" data-toggle="modal" data-target="#createCT"><i class="icon-plus-sign icon-white"></i> Create CT</a>
 			{% if containers != [] %}<a class="btn btn-small btn-inverse" data-toggle="modal" data-target="#cloneCT"><i class="icon-repeat icon-white"></i> Clone CT</a>{% endif %}
 			<a class="btn btn-small btn-danger" data-toggle="modal" data-target="#reboot"><i class="icon-off icon-white"></i> Reboot</a>
+			{% endif %}
 		</div>
-		{% endif %}
 	</div>
 	{% if dist == 'Unknown' %}<div class="alert alert-error">Host distro was not recognized.</div>{% endif %}
 	<div class="host-stats">
@@ -48,6 +42,7 @@
 		<div class="host-card">
 			<h3>Disk</h3>
 			<div class="host-value"><span id="disk-usage" class="hide"></span></div>
+			<div class="host-sub">Size / Used / Avail</div>
 			<div class="progress"><div class="bar" id="disk-usage-bar" style="width: 0%;"></div></div>
 		</div>
 		<div class="host-card">
@@ -55,98 +50,12 @@
 			<div class="host-value"><span id="uptime" class="hide"></span></div>
 		</div>
 	</div>
-	{% for status in containers_all %}
-		{% if status.status == 'broken' and status.containers %}
-		<div class="alert alert-error dont-hide">
-			LXC cannot load {{ status.containers|count }} container config{{ 's' if status.containers|count != 1 else '' }}. They are listed as Broken — the site stays up so you can inspect or destroy them.
+	<form id="bulk-ct" method="post" action="{{ url_for('bulk_action') }}">
+		<input type="hidden" name="token" value="{{ session.token }}">
+		<div id="ct-live">
+			{% include "includes/overview_live.html" %}
 		</div>
-		{% endif %}
-	{% endfor %}
-	{% for status in containers_all %}
-		{% if status.containers or status.status in ('running', 'stopped') %}
-		<section class="ct-group ct-group-{{ status.status }}">
-			<div class="ct-group-head">
-				<span class="label label-{{ td[status.status] }}">{{ status.status|capitalize }}</span>
-				<span class="ct-group-n">{{ status.containers|count }}</span>
-			</div>
-			{% if status.containers %}
-			<table class="table table-bordered">
-				<thead>
-					<tr>
-						<th>Name</th>
-						<th>Hostname</th>
-						<th class="ct-ip ct-ip-v4">IPv4</th>
-						<th class="ct-ip ct-ip-v6">IPv6</th>
-						<th>Mem. usage</th>
-						<th>Disk</th>
-						<th>Snapshots</th>
-						<th class="ct-actions">Actions</th>
-					</tr>
-				</thead>
-				<tbody>
-					{% for container in status.containers %}
-					<tr class="{{ tr[status.status] }}">
-						<td><a href="{{ url_for('edit',container=container.name) }}" title="Click to edit {{container.name}}">{{container.name}}</a></td>
-						<td>
-							{% if container.settings.utsname %}{{ container.settings.utsname }}{% endif %}
-							{% if container.error %}
-								<div><span class="label label-warning">Config broken</span></div>
-								<small>{{ container.error }}</small>
-							{% endif %}
-						</td>
-						<td class="ct-ip ct-ip-v4">
-							{% if status.status == 'broken' %}
-								—
-							{% elif container.settings.flags == 'down' %}
-								Link Down
-							{% elif container.settings.ipv4_addrs %}
-								{% for addr in container.settings.ipv4_addrs %}<div class="ct-ip-line">{{ addr }}</div>{% endfor %}
-							{% else %}
-								<span class="muted">Undefined</span>
-							{% endif %}
-						</td>
-						<td class="ct-ip ct-ip-v6">
-							{% if status.status == 'broken' or container.settings.flags == 'down' %}
-								<span class="muted">—</span>
-							{% elif container.settings.ipv6_addrs %}
-								{% for addr in container.settings.ipv6_addrs %}<div class="ct-ip-line{% if addr.lower().startswith('fe80:') %} ct-ip-ll{% endif %}">{{ addr }}</div>{% endfor %}
-							{% else %}
-								<span class="muted">—</span>
-							{% endif %}
-						</td>
-						<td id="{{container.name}}">{{ render_memory_wrapper(container.memusg) }}</td>
-						<td>{{ render_disk_wrapper(container.diskusg) }}</td>
-						<td>
-							{% if container.snapshots %}
-								{% for snap in container.snapshots %}
-									<a href="#" class="label snapshot-info" data-name="{{ container.name }}" data-snap="{{ snap.name }}" title="{{ snap.created }}{% if snap.comment %} — {{ snap.comment }}{% endif %}{% if snap.path %} — {{ snap.path }}{% endif %}">{{ snap.name }}</a>
-								{% endfor %}
-							{% else %}
-								<span class="muted">—</span>
-							{% endif %}
-						</td>
-						<td class="ct-actions">
-							<div class="btn-toolbar">
-								<div class="btn-group">
-									{% set start_action = {'stopped':'start','frozen':'unfreeze'} %}
-									<a class="btn btn-small{% if status.status == 'running' or status.status == 'broken' %} disabled{% endif %}"{% if status.status == 'stopped' or status.status == 'frozen' %} href="{{ url_for('action', name=container.name, action=start_action[status.status], token=session.token) }}"{% endif %}><i class="icon-play"></i> Start</a>
-									<a class="btn btn-small{% if status.status == 'stopped' or status.status == 'broken' %} disabled{% endif %}"{% if status.status == 'running' or status.status == 'frozen' %} href="{{ url_for('action', name=container.name, action='stop', token=session.token) }}"{% endif %}><i class="icon-stop"></i> Stop</a>
-									<a class="btn btn-small{% if status.status == 'frozen' or status.status == 'stopped' or status.status == 'broken' %} disabled{% endif %}"{% if status.status == 'running' %} href="{{ url_for('action', name=container.name, action='freeze', token=session.token) }}"{% endif %}><i class="icon-pause"></i> Freeze</a>
-									{% if session.su == 'Yes' and status.status == 'running' and console_available %}<a class="btn btn-small btn-inverse console-open" href="{{ url_for('container_console', container=container.name) }}" data-container-name="{{ container.name }}" title="Open attach console in a new window"><i class="icon-list-alt icon-white"></i> Console</a>{% endif %}
-								</div>
-								{% if session.su == 'Yes' %}<a class="pull-right close destroy" data-container-name="{{container.name}}" style="margin-top:4px;"><i class="icon-remove-sign"></i></a>{% endif %}
-							</div>
-						</td>
-					</tr>
-					{% endfor %}
-				</tbody>
-			</table>
-			{% else %}
-			<div class="ct-group-empty">No {{ status.status }} containers.</div>
-			{% endif %}
-		</section>
-		{% endif %}
-	{% endfor %}
+	</form>
 </div>
 {% include "includes/modal_snapshots.html" %}
 {% if session.su == 'Yes' %}
@@ -160,17 +69,6 @@
 {% endif %}
 
 {% endblock %}
-
-{# disk_color: Bootstrap label class from on-disk size in MB. #}
-{% macro disk_color(value) -%}{% if value != 0 %}{% if value < 2048 %}success{% elif value < 10240 %}warning{% else %}important{% endif %}{% endif %}{%- endmacro %}
-{# render_disk_wrapper: GB if >= 1024 MB, else MB. #}
-{% macro render_disk_wrapper(value) -%}
-	{% if value %}
-		<span class="label label-{{ disk_color(value) }}" title="On-disk size of the container directory (rootfs, config, snapshots)">{% if value >= 1024 %}{{ (value / 1024)|qty(1) }} GB{% else %}{{ value|qty }} MB{% endif %}</span>
-	{% else %}
-		<span class="muted">—</span>
-	{% endif %}
-{%- endmacro %}
 
 {% block script %}
 <script src="{{ url_for('static', filename='js/bootstrapSwitch.js') }}"></script>
@@ -197,10 +95,14 @@
 			}
 
 			function refreshDiskHost(){
-				/** Host disk used/free from [overview] partition. */
+				/** Host disk as df: Size / Used / Avail (Use%). */
 				$.getJSON($SCRIPT_ROOT + '/_refresh_disk_host', function(data) {
-					$('#disk-usage').text(fmtHostSize(data.used) +' ('+ fmtHostSize(data.free) +' free)').fadeIn();
-					$('#disk-usage-bar').css({'width':data.percent});
+					$('#disk-usage').text(
+						fmtHostSize(data.total) +' / '+
+						fmtHostSize(data.used) +' / '+
+						fmtHostSize(data.free) +' ('+ data.percent +')'
+					).fadeIn();
+					$('#disk-usage-bar').css({'width': data.percent});
 				});
 			}
 
@@ -211,33 +113,126 @@
 				});
 			}
 
-			function refreshMemoryContainers(){
-				/** Live RAM labels on running CT rows. */
-				$.getJSON($SCRIPT_ROOT + '/_refresh_memory_containers', function(data) {
-					data = data.data;
-					for (i in data) {
-						var el = $('#'+data[i].name+' span');
-						el.text(fmtNum(Math.round(data[i].memusg))+' MB');
-						el[0].className = el[0].className.replace(/label\-(success|warning|important)/g,'label-'+memory_color(data[i].memusg));
+			function refreshContainers(force){
+				/** Replace CT tables (state, IP, RAM, disk, snaps). Keep bulk ticks. */
+				if (window._ctLiveBusy || (!force && $('.modal:visible').length)) {
+					if (!window._ctLiveBusy) {
+						$('#overview-refresh').prop('disabled', false).removeClass('is-busy');
 					}
+					return;
+				}
+				window._ctLiveBusy = true;
+				var picked = [];
+				$('#ct-live .ct-pick:checked').each(function() {
+					picked.push(this.value);
 				});
+				$.getJSON($SCRIPT_ROOT + '/_refresh_overview')
+					.done(function(data) {
+						if (!data || typeof data.live !== 'string') {
+							return;
+						}
+						if (typeof data.counts === 'string') {
+							$('#ct-counts').html(data.counts);
+						}
+						$('#ct-live').html(data.live);
+						$.each(picked, function(_, name) {
+							$('#ct-live .ct-pick').filter(function() {
+								return this.value === name;
+							}).prop('checked', true);
+						});
+						syncBulk();
+					})
+					.always(function() {
+						window._ctLiveBusy = false;
+						$('#overview-refresh').prop('disabled', false).removeClass('is-busy');
+					});
 			}
 
-			function refresh(){
-				/** Poll all host cards + CT memory (every 15s). */
-				$('#home-load').fadeIn();
+			function refreshHost(){
+				/** Poll host CPU / RAM / disk / uptime cards. */
 				refreshMemoryHost();
 				refreshCPUHost();
 				refreshDiskHost();
 				refreshUptimeHost();
-				refreshMemoryContainers();
+			}
+
+			function refresh(opts){
+				/** Poll host cards + CT tables. force: ignore hidden tab / run now. */
+				var force = !!(opts && opts.force);
+				if (!force && document.hidden) {
+					return;
+				}
+				$('#home-load').fadeIn();
+				$('#overview-refresh').prop('disabled', true).addClass('is-busy');
+				refreshHost();
+				refreshContainers(force);
 				$('#home-load').fadeOut();
 			}
 
+			var OVERVIEW_REFRESH_MS = {{ overview_refresh|int }} * 1000;
+			var AUTO_KEY = 'lwp-overview-autorefresh';
+			var autoTimer = null;
+
+			function setAuto(on) {
+				/** Start or stop the Overview interval; remember in localStorage. */
+				$('#overview-autorefresh').toggleClass('is-on', on)
+					.attr('aria-pressed', on ? 'true' : 'false');
+				try {
+					localStorage.setItem(AUTO_KEY, on ? '1' : '0');
+				} catch (e) {}
+				if (autoTimer) {
+					clearInterval(autoTimer);
+					autoTimer = null;
+				}
+				if (on && OVERVIEW_REFRESH_MS > 0) {
+					autoTimer = setInterval(function () { refresh(); }, OVERVIEW_REFRESH_MS);
+				}
+			}
+
+			function syncBulk() {
+				/** Enable Start/Stop selected when any CT checkbox is on. */
+				var n = $('.ct-pick:checked').length;
+				$('#bulk-bar').toggleClass('is-on', n > 0);
+				$('#bulk-n').text(n);
+				$('#bulk-bar button').prop('disabled', n === 0);
+				$('.bulk-all').each(function() {
+					var picks = $(this).closest('table').find('.ct-pick');
+					var checked = picks.filter(':checked').length;
+					this.checked = picks.length > 0 && checked === picks.length;
+					this.indeterminate = checked > 0 && checked < picks.length;
+				});
+			}
+
 			$(function() {
-				refresh();
+				refreshHost();
 				{% if session.su == 'Yes' and containers == [] %}$('#createCT').modal('show'){% endif %}
-				window.setInterval('refresh()', 15000);
+				var saved = null;
+				try { saved = localStorage.getItem(AUTO_KEY); } catch (e) {}
+				setAuto(saved !== '0');
+				$('#overview-autorefresh').on('click', function() {
+					var on = !$(this).hasClass('is-on');
+					setAuto(on);
+					if (on) {
+						refresh({force: true});
+					}
+				});
+				$('#overview-refresh').on('click', function() {
+					refresh({force: true});
+				});
+				$(document).on('visibilitychange', function() {
+					if (!document.hidden && $('#overview-autorefresh').hasClass('is-on')) {
+						refresh();
+					}
+				});
+				$(document).on('change', '.ct-pick', syncBulk);
+				$(document).on('change', '.bulk-all', function() {
+					$(this).closest('table').find('.ct-pick').prop('checked', this.checked);
+					syncBulk();
+				});
+				$('#bulk-ct').on('submit', function() {
+					if ($('.ct-pick:checked').length === 0) return false;
+				});
+				syncBulk();
 			});
 
 			{% include "includes/snapshot_info_js.html" %}
@@ -246,7 +241,7 @@
 
 				var token = '{{ session.token }}';
 
-				$(".destroy").on('click',function(e){
+				$(document).on('click', '.destroy', function(e){
 					$(".destroy-link").attr('href',"{{url_for('action', action='destroy') }}" + "&token="+ token +"&name="+ $(this).data('container-name'));
 					$('#destroy').modal('show');
 				});

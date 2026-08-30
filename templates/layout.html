@@ -7,7 +7,7 @@
 		<meta name="viewport" content="width=device-width, initial-scale=1.0">
 		<meta name="author" content="Michael Privorotsky">
 		<link href="{{ url_for('static', filename='css/bootstrapSwitch.css') }}" rel="stylesheet">
-		<link href="{{ url_for('static', filename='css/lwp.css') }}?v=30" rel="stylesheet">
+		<link href="{{ url_for('static', filename='css/lwp.css') }}?v=33" rel="stylesheet">
 		<link rel="shortcut icon" href="{{ url_for('static', filename='ico/favicon.ico') }}">
 	</head>
 	<body class="{% if session.logged_in %}is-app{% else %}is-login{% endif %}">
@@ -65,6 +65,17 @@
 				intpart = intpart.replace(/\B(?=(\d{3})+(?!\d))/g, ',');
 				return neg + intpart + frac;
 			}
+			function fmtMemUsage(mb) {
+				/** Guest RAM: whole MB, or GB with one decimal from 1024 MB. */
+				var n = Number(mb);
+				if (!isFinite(n) || n === 0) {
+					return '';
+				}
+				if (n >= 1024) {
+					return fmtNum(n / 1024, 1) + ' GB';
+				}
+				return fmtNum(n) + ' MB';
+			}
 			function fmtHostSize(value) {
 				/** Commas in df-style sizes: "104G" -> "104 G", "1.2T" stays dotted. */
 				var s = String(value == null ? '' : value);
@@ -96,7 +107,7 @@
 						$("#home-btn").on('click',function(){
 								$('#home-load').fadeIn();
 						});
-						$("input").not("[type=submit]").jqBootstrapValidation();
+						$("input").not("[type=submit]").not(".ct-pick, .bulk-all").jqBootstrapValidation();
 						$('.lwp-menu').on('click', function () {
 								$('body').toggleClass('sidebar-open');
 						});

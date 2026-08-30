@@ -89,7 +89,7 @@ def host_cpu_percent():
 
 
 def host_disk_usage(partition=None):
-    '''df -h of one mount: total, used, free, percent.'''
+    '''df -h of one mount: Size, Used, Avail, Use% (total, used, free, percent).'''
 
     if not partition:
         partition = '/'

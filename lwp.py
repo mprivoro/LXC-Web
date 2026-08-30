@@ -65,9 +65,31 @@ except (configparser.NoSectionError, configparser.NoOptionError):
     CONTAINER_LOG = 'lwp-containers.log'
 ctlog.init(CONTAINER_LOG)
 try:
+    LXC_CONF = config.get('lxc', 'conf').strip()
+except (configparser.NoSectionError, configparser.NoOptionError):
+    LXC_CONF = '/etc/lxc/lxc.conf'
+try:
+    LXC_STORE = config.get('lxc', 'store').strip()
+except (configparser.NoSectionError, configparser.NoOptionError):
+    LXC_STORE = '/var/lib/lxc'
+lxc.init_lxc_conf(LXC_CONF, LXC_STORE)
+try:
+    LXC_IMAGES = config.get('lxc', 'images').strip()
+except (configparser.NoSectionError, configparser.NoOptionError):
+    LXC_IMAGES = '/var/cache/lxc/download'
+lwp.init_images_dir(LXC_IMAGES)
+try:
     OVERVIEW_PARTITION = config.get('overview', 'partition')
 except (configparser.NoSectionError, configparser.NoOptionError):
     OVERVIEW_PARTITION = '/'
+try:
+    OVERVIEW_REFRESH = int(config.get('overview', 'refresh'))
+except (configparser.NoSectionError, configparser.NoOptionError, ValueError):
+    OVERVIEW_REFRESH = 60
+if OVERVIEW_REFRESH < 5:
+    OVERVIEW_REFRESH = 5
+elif OVERVIEW_REFRESH > 3600:
+    OVERVIEW_REFRESH = 3600
 
 
 # Flask app
@@ -91,6 +113,7 @@ except ImportError:
     sock = None
 app.config['CONSOLE_AVAILABLE'] = CONSOLE_AVAILABLE
 app.config['OVERVIEW_PARTITION'] = OVERVIEW_PARTITION
+app.config['OVERVIEW_REFRESH'] = OVERVIEW_REFRESH
 
 register_routes(app)
 

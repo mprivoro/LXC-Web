@@ -220,7 +220,7 @@ def edit(container=None):
             if form['autostart'] == 'True' and \
                     not ('%s.conf' % container) in auto:
                 try:
-                    os.symlink('/var/lib/lxc/%s/config' % container,
+                    os.symlink(os.path.join(lxc.lxcpath(), container, 'config'),
                                '/etc/lxc/auto/%s.conf' % container)
                     flash(u'Autostart enabled for %s' % container, 'success')
                 except OSError:
@@ -294,7 +294,8 @@ def edit(container=None):
                                config_missing=config_missing,
                                config_read_error=config_read_error,
                                config_has_bak=config_has_bak,
-                               console_available=console_ok())
+                               console_available=console_ok(),
+                               lxcpath=lxc.lxcpath())
     return render_template('login.html')
 
 

@@ -34,7 +34,7 @@
 				<div class="alert alert-info dont-hide" style="text-align:left;">
 					<strong>How to choose</strong>
 					<ul style="margin:8px 0 0 18px;">
-						<li><strong>Cached images</strong> (ubuntu / jammy, ubuntu / noble) are already on this host. Pick one and click Create. Nothing is downloaded; LXC uses <code>--force-cache</code>. You do not need a template.</li>
+						<li><strong>Cached images</strong> (ubuntu / jammy, ubuntu / noble) are already on this host under <code>{{ images_dir }}</code> (<code>[lxc] images</code> in lwp.conf). Pick one and click Create. Nothing is downloaded; LXC uses <code>--force-cache</code>. You do not need a template.</li>
 						<li><strong>Templates</strong> are LXC scripts, not those Ubuntu images:
 							<ul>
 								<li><code>download</code> — fetch a new image from the network (set extra options under Advanced).</li>
@@ -68,7 +68,7 @@
 								<option value="zfs">ZFS</option>
 						</select>
 					</div>
-					<span class="help-inline"><small>*By default it is 'none', which is a simple directory tree under /var/lib/lxc/&lt;name&gt;/rootfs</small></span>
+					<span class="help-inline"><small>*By default it is 'none', which is a simple directory tree under lxc.lxcpath/&lt;name&gt;/rootfs ({{ lxc_conf }})</small></span>
 				</div>
 				<div class="control-group hide directory">
 					<label class="control-label" for="inputDirectory">Directory</label>

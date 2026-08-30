@@ -1,4 +1,4 @@
-# Start/stop/freeze/destroy, snapshots, create, clone. Query/form → lxclite.
+# Start/stop/freeze/destroy, bulk start/stop, snapshots, create, clone. Query/form → lxclite.
 
 import subprocess
 import time
@@ -6,7 +6,8 @@ import time
 import lxclite as lxc
 import lwp
 from lwp.util import (
-    RE_ABS_DIR, RE_CT_CREATE, RE_FSSIZE, RE_FSTYPE, RE_IFACE, RE_ZFS, matches)
+    RE_ABS_DIR, RE_CT_CREATE, RE_CT_NAME, RE_FSSIZE, RE_FSTYPE, RE_IFACE,
+    RE_ZFS, matches)
 from flask import (abort, flash, jsonify, redirect, render_template, request,
                    session, url_for)
 
@@ -127,6 +128,78 @@ def action():
     return render_template('login.html')
 
 
+def bulk_action():
+    '''POST: start or stop the selected containers (skips broken / already there).'''
+
+    if 'logged_in' not in session:
+        return render_template('login.html')
+    if request.form.get('token') != session.get('token'):
+        return abort(403)
+    action_name = request.form.get('action', '')
+    if action_name not in ('start', 'stop'):
+        flash(u'Invalid bulk action!', 'error')
+        return redirect(url_for('home'))
+
+    names = []
+    seen = set()
+    for name in request.form.getlist('name'):
+        name = (name or '').strip()
+        if not name or name in seen or not matches(RE_CT_NAME, name):
+            continue
+        seen.add(name)
+        names.append(name)
+    if not names:
+        flash(u'No containers selected!', 'error')
+        return redirect(url_for('home'))
+
+    ok = []
+    failed = []
+    did_start = False
+    for name in names:
+        try:
+            state = lxc.info(name).get('state', '')
+        except lxc.ContainerDoesntExists:
+            failed.append('%s (does not exist)' % name)
+            continue
+        except Exception as e:
+            failed.append('%s (%s)' % (name, e))
+            continue
+        if state == 'BROKEN':
+            failed.append('%s (broken config)' % name)
+            continue
+        try:
+            if action_name == 'start':
+                if state == 'RUNNING':
+                    continue
+                if state == 'FROZEN':
+                    lxc.unfreeze(name)
+                else:
+                    lxc.start(name)
+                    did_start = True
+            else:
+                if state == 'STOPPED':
+                    continue
+                lxc.stop(name)
+            ok.append(name)
+        except (lxc.ContainerAlreadyRunning, lxc.ContainerNotRunning):
+            continue
+        except subprocess.CalledProcessError as e:
+            failed.append('%s (%s)' % (name, lxc.lxc_error_message(e.output)))
+        except Exception as e:
+            failed.append('%s (%s)' % (name, e))
+    if did_start:
+        time.sleep(1)
+    if ok:
+        verb = 'started' if action_name == 'start' else 'stopped'
+        flash(u'%d container(s) %s: %s' % (len(ok), verb, ', '.join(ok)),
+              'success')
+    elif not failed:
+        flash(u'Nothing to %s (already in that state).' % action_name, 'info')
+    if failed:
+        flash(u'Failed: %s' % '; '.join(failed), 'error')
+    return redirect(url_for('home'))
+
+
 def take_snapshot():
     '''
     Create an LXC snapshot of a container.
@@ -179,13 +252,15 @@ def create_container():
                 return redirect(url_for('home'))
             if image_xargs:
                 command = image_xargs
+            create_env = lwp.create_env()
 
             if matches(RE_CT_CREATE, name):
                 storage_method = request.form['backingstore']
 
                 if storage_method == 'default':
                     try:
-                        lxc.create(name, template=template, xargs=command)
+                        lxc.create(name, template=template, xargs=command,
+                                   env=create_env)
                         flash(u'Container %s created successfully!' % name, 'success')
                     except lxc.ContainerAlreadyExists:
                         flash(u'The Container %s is already created!' % name,
@@ -200,7 +275,7 @@ def create_container():
                         try:
                             lxc.create(name, template=template,
                                        storage='dir --dir %s' % directory,
-                                       xargs=command)
+                                       xargs=command, env=create_env)
                             flash(u'Container %s created successfully!'
                                   % name, 'success')
                         except lxc.ContainerAlreadyExists:
@@ -214,7 +289,9 @@ def create_container():
 
                     if matches(RE_ZFS, zfs) and zfs != '':
                         try:
-                            lxc.create(name, template=template, storage='zfs --zfsroot %s' % zfs, xargs=command)
+                            lxc.create(name, template=template,
+                                       storage='zfs --zfsroot %s' % zfs,
+                                       xargs=command, env=create_env)
                             flash(u'Container %s created successfully!' % name, 'success')
                         except lxc.ContainerAlreadyExists:
                             flash(u'The Container %s is already created!' % name, 'error')
@@ -238,7 +315,9 @@ def create_container():
                         storage_options += ' --fssize %s' % fssize
 
                     try:
-                        lxc.create(name, template=template, storage=storage_options, xargs=command)
+                        lxc.create(name, template=template,
+                                   storage=storage_options, xargs=command,
+                                   env=create_env)
                         flash(u'Container %s created successfully!' % name, 'success')
                     except lxc.ContainerAlreadyExists:
                         flash(u'The container/logical volume %s is '
@@ -317,6 +396,8 @@ def register(app):
     '''Bind /action, create/clone, take-snapshot, and snapshot AJAX.'''
 
     app.add_url_rule('/action', view_func=action, endpoint='action', methods=['GET'])
+    app.add_url_rule('/action/bulk', view_func=bulk_action, endpoint='bulk_action',
+                     methods=['POST'])
     app.add_url_rule('/action/take-snapshot', view_func=take_snapshot,
                      endpoint='take_snapshot', methods=['POST'])
     app.add_url_rule('/action/create-container', view_func=create_container,

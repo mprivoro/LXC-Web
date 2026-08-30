@@ -1,0 +1,16 @@
+{# Disk/snapshot sizes in MB (same comma grouping as memory). #}
+{% macro format_size_mb(value) -%}
+{%- if value -%}
+{%- if value >= 1024 -%}{{ (value / 1024)|qty(1) }} GB{%- else -%}{{ value|qty }} MB{%- endif -%}
+{%- endif -%}
+{%- endmacro %}
+{# disk_color: Bootstrap label class from on-disk size in MB. #}
+{% macro disk_color(value) -%}{% if value != 0 %}{% if value < 2048 %}success{% elif value < 10240 %}warning{% else %}important{% endif %}{% endif %}{%- endmacro %}
+{# render_disk_wrapper: GB if >= 1024 MB, else MB. #}
+{% macro render_disk_wrapper(value) -%}
+	{% if value %}
+		<span class="label label-{{ disk_color(value) }}" title="Live container on disk (rootfs and config). Snapshots are listed separately.">{% if value >= 1024 %}{{ (value / 1024)|qty(1) }} GB{% else %}{{ value|qty }} MB{% endif %}</span>
+	{% else %}
+		<span class="muted">—</span>
+	{% endif %}
+{%- endmacro %}

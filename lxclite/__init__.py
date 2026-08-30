@@ -28,7 +28,8 @@
 # THE SOFTWARE.
 
 # Classic LXC CLI wrapper (lxc-create, lxc-start, lxc-snapshot, …).
-# Containers live under /var/lib/lxc (or ~/.local/share/lxc). Not LXD/Incus.
+# Container store is lxc.lxcpath from the LXC conf file (path from lwp.conf
+# [lxc] conf). If that is missing or invalid, [lxc] store. Not LXD/Incus.
 
 import subprocess
 import os
@@ -48,13 +49,13 @@ def _log_cmd(cmd, rc, output=''):
         pass
 
 
-def _run(cmd):
+def _run(cmd, env=None):
     '''Run a shell command, log it, raise CalledProcessError on failure.'''
 
     try:
         out = subprocess.check_output(
             '{}'.format(cmd), shell=True,
-            universal_newlines=True, stderr=subprocess.STDOUT)
+            universal_newlines=True, stderr=subprocess.STDOUT, env=env)
         _log_cmd(cmd, 0, out)
         return out
     except subprocess.CalledProcessError as e:
@@ -111,7 +112,7 @@ def exists(container):
 
     return (container in ls())
 
-def create(container, template='ubuntu', storage=None, xargs=None):
+def create(container, template='ubuntu', storage=None, xargs=None, env=None):
     '''lxc-create -n name -t template, optional -B storage and extra args.'''
 
 
@@ -128,7 +129,7 @@ def create(container, template='ubuntu', storage=None, xargs=None):
     if xargs:
         command += ' -- {}'.format(xargs)
 
-    return _run(command)
+    return _run(command, env=env)
 
 
 def clone(orig=None, new=None, snapshot=False):
@@ -290,12 +291,77 @@ def _valid_snapshot_name(snap):
     return bool(re.match(r'^[A-Za-z0-9][A-Za-z0-9._-]*$', snap))
 
 
-def _container_path(container):
-    '''Host directory for this CT: /var/lib/lxc/<name> (or user LXC home).'''
+_lxcpath_cached = None
+_LXC_CONF = '/etc/lxc/lxc.conf'
+_LXCPATH_FALLBACK = '/var/lib/lxc'
 
-    if os.geteuid():
-        return os.path.expanduser('~/.local/share/lxc/%s' % container)
-    return os.path.join('/var/lib/lxc', container)
+
+def init_lxc_conf(conf_path, store=None):
+    '''Set the LXC conf file and fallback store (from lwp.conf [lxc]).'''
+
+    global _LXC_CONF, _LXCPATH_FALLBACK, _lxcpath_cached
+    conf_path = (conf_path or '').strip()
+    if conf_path.startswith('/'):
+        _LXC_CONF = os.path.normpath(conf_path)
+    store = (store or '').strip().rstrip('/')
+    if store.startswith('/'):
+        _LXCPATH_FALLBACK = os.path.normpath(store)
+    _lxcpath_cached = None
+
+
+def lxc_conf_path():
+    '''Path of the LXC conf file that may contain lxc.lxcpath.'''
+
+    return _LXC_CONF
+
+
+def _lxcpath_from_file(filename):
+    '''Read lxc.lxcpath from an lxc.conf file.'''
+
+    try:
+        with open(filename) as fh:
+            for line in fh:
+                line = line.strip()
+                if not line or line.startswith('#') or '=' not in line:
+                    continue
+                key, val = line.split('=', 1)
+                if key.strip() == 'lxc.lxcpath':
+                    return val.strip().strip('"').rstrip('/')
+    except (OSError, IOError):
+        return ''
+    return ''
+
+
+def _valid_lxcpath(path):
+    '''Absolute existing directory, or ''.'''
+
+    path = (path or '').strip().rstrip('/')
+    if not path.startswith('/') or not os.path.isdir(path):
+        return ''
+    return path
+
+
+def lxcpath():
+    '''
+    Directory that holds one subdirectory per container.
+    From lxc.lxcpath in the conf file ([lxc] conf) when that path is a
+    real directory. Otherwise [lxc] store.
+    '''
+
+    global _lxcpath_cached
+    if _lxcpath_cached is not None:
+        return _lxcpath_cached
+    path = _valid_lxcpath(_lxcpath_from_file(_LXC_CONF))
+    if not path:
+        path = _LXCPATH_FALLBACK
+    _lxcpath_cached = path
+    return _lxcpath_cached
+
+
+def _container_path(container):
+    '''Host directory for this CT: <lxc.lxcpath>/<name>.'''
+
+    return os.path.join(lxcpath(), container)
 
 
 def _next_snap_name(container):
@@ -537,10 +603,39 @@ def _safe_snap_directory(container, snap):
     return target
 
 
+_du_cache = {}
+_DU_TTL = 60
+
+
+def _du_sm(path):
+    '''du -sm of one path, or 0 if it fails. Cached for 60s.'''
+
+    if not path or not os.path.exists(path):
+        return 0
+    now = time.time()
+    real = os.path.realpath(path)
+    cached = _du_cache.get(real)
+    if cached and (now - cached[0]) < _DU_TTL:
+        return cached[1]
+    mb = 0
+    try:
+        out = subprocess.check_output(
+            ['du', '-sm', path],
+            stderr=subprocess.DEVNULL,
+            universal_newlines=True,
+            timeout=30)
+        mb = int(out.split()[0])
+    except (subprocess.CalledProcessError, ValueError, OSError,
+            subprocess.TimeoutExpired, IndexError):
+        mb = 0
+    _du_cache[real] = (now, mb)
+    return mb
+
+
 def snapshots(container):
     '''
     List LXC snapshots for a container.
-    Returns a list of dicts: name, path, created, comment.
+    Returns a list of dicts: name, path, created, comment, directory, size_mb.
     Comments are read from each snapshot directory (lxc-snapshot -C
     concatenates a comment with no trailing newline onto the next name).
     '''
@@ -560,6 +655,10 @@ def snapshots(container):
     snaps = _parse_snapshot_list(out)
     for item in snaps:
         directory = _snap_directory(container, item['name'], item.get('path'))
+        if not os.path.isdir(directory):
+            directory = _safe_snap_directory(container, item['name']) or directory
+        item['directory'] = directory
+        item['size_mb'] = _du_sm(directory) if os.path.isdir(directory) else 0
         if not item.get('comment'):
             item['comment'] = _read_text(os.path.join(directory, 'comment'))
         if not item.get('created') or item['created'] in ('(null)', 'null'):
@@ -594,24 +693,20 @@ def snapshot_info(container, snap):
         raise SnapshotDoesntExists(
             'Snapshot {} does not exist for {}!'.format(snap, container))
 
-    directory = ''
-    if found.get('path'):
+    directory = found.get('directory') or ''
+    if not directory and found.get('path'):
         directory = os.path.join(found['path'], found['name'])
     found['directory'] = directory
-    found['size'] = ''
+    mb = int(found.get('size_mb') or 0)
+    if mb >= 1024:
+        found['size'] = '%.1f GB' % (mb / 1024.0)
+    elif mb:
+        found['size'] = '%s MB' % mb
+    else:
+        found['size'] = ''
     found['rootfs'] = ''
 
     if directory and os.path.isdir(directory):
-        try:
-            du = subprocess.check_output(
-                ['du', '-sh', directory],
-                stderr=subprocess.DEVNULL,
-                universal_newlines=True,
-                timeout=30)
-            found['size'] = du.split()[0]
-        except (subprocess.CalledProcessError, OSError, subprocess.TimeoutExpired):
-            pass
-
         comment_file = os.path.join(directory, 'comment')
         if not found.get('comment') and os.path.isfile(comment_file):
             try:
@@ -771,16 +866,9 @@ def snapshot_restore(container, snap, newname=None):
 
 
 def ls():
-    '''
-    List containers directory
+    '''Names under lxc.lxcpath (one directory per container).'''
 
-    Note: Directory mode for Ubuntu 12/13 compatibility
-    '''
-
-    if os.geteuid():
-        base_path = os.path.expanduser("~/.local/share/lxc/")
-    else:
-        base_path = '/var/lib/lxc'
+    base_path = lxcpath()
 
     try:
         names = os.listdir(base_path)

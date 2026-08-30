@@ -275,7 +275,7 @@
 			return;
 		}
 
-		$('.console-open').on('click', function (e) {
+		$(document).on('click', '.console-open', function (e) {
 			if (e.ctrlKey || e.metaKey || e.shiftKey || e.which === 2) {
 				return;
 			}

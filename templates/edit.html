@@ -1,6 +1,7 @@
 {# Edit one container: start/stop, limits, network, raw config, snapshots. #}
 {% extends "layout.html" %}
 {% from "includes/memory.html" import render_memory_wrapper %}
+{% from "includes/size.html" import format_size_mb %}
 {% block title %}{{container|capitalize}}{% endblock %}
 {% block content %}
 	<div class="span9">
@@ -133,7 +134,7 @@
 				<label class="control-label" for="inputRootfs">Root FS</label>
 				<div class="controls">
 					<input pattern="[a-zA-Z0-9_/\-\.]+" type="text" id="inputRootfs" name="rootfs" value="{{ settings.rootfs }}">
-					<span class="help-inline"><small>(e.g /var/lib/lxc/{{container}}/rootfs)</small></span>
+					<span class="help-inline"><small>(e.g {{ lxcpath }}/{{container}}/rootfs)</small></span>
 				</div>
 			</div>
 
@@ -179,6 +180,7 @@
 			<thead>
 				<tr>
 					<th>Name</th>
+					<th>Size</th>
 					<th>Created</th>
 					<th>Comment</th>
 					<th>Path</th>
@@ -189,6 +191,7 @@
 				{% for snap in snapshots %}
 				<tr>
 					<td><span class="label">{{ snap.name }}</span></td>
+					<td>{% if snap.size_mb %}{{ format_size_mb(snap.size_mb) }}{% else %}<span class="muted">—</span>{% endif %}</td>
 					<td>{% if snap.created %}{{ snap.created }}{% else %}<span class="muted">—</span>{% endif %}</td>
 					<td>{% if snap.comment %}{{ snap.comment }}{% else %}<span class="muted">—</span>{% endif %}</td>
 					<td class="snapshot-path">{% if snap.path %}{{ snap.path }}/{{ snap.name }}{% else %}<span class="muted">—</span>{% endif %}</td>
@@ -221,7 +224,7 @@
 				/** Live RAM label on the Edit header. */
 				$.getJSON($SCRIPT_ROOT + '/_refresh_memory_' + container, function(data) {
 					var el = $('#'+container+' span');
-					el.text(fmtNum(Math.round(data.memusg))+' MB');
+					el.text(fmtMemUsage(data.memusg));
 					el[0].className = el[0].className.replace(/label\-(success|warning|important)/g,'label-'+memory_color(data.memusg));
 				});
 			}

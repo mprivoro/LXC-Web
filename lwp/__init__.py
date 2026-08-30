@@ -34,7 +34,7 @@
 import sys
 sys.path.append('../')
 from lxclite import exists, listx, ContainerDoesntExists, _container_path, \
-    merge_ip_texts
+    merge_ip_texts, rootfs_backend
 
 import os
 import re
@@ -217,16 +217,18 @@ def _is_cgroup_v2():
     return os.path.exists('/sys/fs/cgroup/cgroup.controllers')
 
 
-def memory_usage(name):
+def memory_usage(name, known_live=None):
     '''Guest RAM in MB via lxc-cgroup, or 0 if not running/frozen.'''
 
     if not exists(name):
         raise ContainerDoesntExists(
             "The container (%s) does not exist!" % name)
 
-    states = listx()
-    if name not in states.get('RUNNING', []) and \
-            name not in states.get('FROZEN', []):
+    if known_live is None:
+        states = listx()
+        known_live = name in states.get('RUNNING', []) or \
+            name in states.get('FROZEN', [])
+    if not known_live:
         return 0
 
     # cgroup v2: memory.current; cgroup v1: memory.usage_in_bytes
@@ -251,29 +253,94 @@ _disk_cache = {}
 _DISK_TTL = 60
 
 
+def _rootfs_dir(raw):
+    '''Live rootfs directory from lxc.rootfs.path (not the CT parent, not snaps).'''
+
+    raw = (raw or '').strip().strip('"')
+    if not raw:
+        return ''
+    path = raw
+    if not raw.startswith('/') and ':' in raw:
+        path = raw.split(':', 1)[1].split(':')[0]
+    if not path.startswith('/'):
+        return ''
+    path = path.rstrip('/') or '/'
+    if os.path.isdir(path):
+        return os.path.realpath(path)
+    return ''
+
+
+def _path_covered(path, counted):
+    '''True if path is counted already or is a parent of a counted dir.'''
+
+    for other in counted:
+        if path == other or path.startswith(other + os.sep):
+            return True
+        if other.startswith(path + os.sep):
+            return True
+    return False
+
+
+def _du_sm(path):
+    '''du -sm of one path, or 0 if it fails.'''
+
+    try:
+        out = subprocess.check_output(
+            ['du', '-sm', path],
+            stderr=subprocess.DEVNULL,
+            universal_newlines=True,
+            timeout=60)
+        return int(out.split()[0])
+    except (subprocess.CalledProcessError, ValueError, OSError,
+            subprocess.TimeoutExpired, IndexError):
+        return 0
+
+
 def container_disk_usage(name):
     '''
-    On-disk size of the container directory (rootfs, config, snapshots), in MB.
-    Cached for a short time so Overview does not re-run du on every refresh.
+    On-disk size in MB of the live container (rootfs plus config/log in the
+    CT dir). Snapshot trees under snaps/ are excluded; they have their own
+    size labels on Overview.
     '''
     now = time.time()
     cached = _disk_cache.get(name)
     if cached and (now - cached[0]) < _DISK_TTL:
         return cached[1]
 
+    counted = []
     mb = 0
-    path = _container_path(name)
-    if os.path.isdir(path):
+    rootfs = ''
+    try:
+        _backend, raw = rootfs_backend(name)
+        rootfs = _rootfs_dir(raw)
+    except Exception:
+        rootfs = ''
+    if not rootfs:
+        guess = os.path.join(_container_path(name), 'rootfs')
+        if os.path.isdir(guess):
+            rootfs = os.path.realpath(guess)
+    if rootfs:
+        mb += _du_sm(rootfs)
+        counted.append(rootfs)
+
+    ct = _container_path(name)
+    try:
+        entries = os.listdir(ct)
+    except OSError:
+        entries = []
+    for entry in entries:
+        if entry == 'snaps':
+            continue
+        full = os.path.join(ct, entry)
         try:
-            out = subprocess.check_output(
-                ['du', '-sm', path],
-                stderr=subprocess.DEVNULL,
-                universal_newlines=True,
-                timeout=12)
-            mb = int(out.split()[0])
-        except (subprocess.CalledProcessError, ValueError, OSError,
-                subprocess.TimeoutExpired):
-            mb = 0
+            real = os.path.realpath(full)
+        except OSError:
+            continue
+        if not os.path.exists(real) or _path_covered(real, counted):
+            continue
+        mb += _du_sm(real)
+        counted.append(real)
+
     _disk_cache[name] = (now, mb)
     return mb
 
@@ -296,12 +363,60 @@ def get_templates_list():
     return sorted(templates)
 
 
+_IMAGES_DOWNLOAD = '/var/cache/lxc/download'
+
+
+def _normalize_images_dir(path):
+    '''Absolute download tree. A cache base that contains download/ is accepted.'''
+
+    path = (path or '').strip() or '/var/cache/lxc/download'
+    if not path.startswith('/'):
+        path = '/var/cache/lxc/download'
+    path = os.path.normpath(path)
+    if os.path.basename(path) != 'download':
+        nested = os.path.join(path, 'download')
+        if os.path.isdir(nested):
+            return nested
+    return path
+
+
+def init_images_dir(path):
+    '''Set the lxc-download cache tree from lwp.conf [lxc] images.'''
+
+    global _IMAGES_DOWNLOAD
+    _IMAGES_DOWNLOAD = _normalize_images_dir(path)
+
+
+def images_download_dir():
+    '''Directory scanned for dist/release/arch/variant (rootfs.tar.xz).'''
+
+    return _IMAGES_DOWNLOAD
+
+
+def images_cache_base():
+    '''Parent of download/; passed to lxc-download as LXC_CACHE_PATH.'''
+
+    d = _IMAGES_DOWNLOAD.rstrip(os.sep)
+    if os.path.basename(d) == 'download':
+        parent = os.path.dirname(d)
+        return parent or '/'
+    return d
+
+
+def create_env():
+    '''os.environ plus LXC_CACHE_PATH so lxc-create uses [lxc] images.'''
+
+    env = os.environ.copy()
+    env['LXC_CACHE_PATH'] = images_cache_base()
+    return env
+
+
 def get_cached_images():
     '''
-    Cached lxc-download images under /var/cache/lxc/download.
+    Cached lxc-download images under [lxc] images (default /var/cache/lxc/download).
     Each item: id, label, dist, release, arch, variant.
     '''
-    base = '/var/cache/lxc/download'
+    base = images_download_dir()
     images = []
     if not os.path.isdir(base):
         return images
@@ -436,10 +551,7 @@ def get_container_settings(name):
     '''Parsed CT config for the edit form (legacy + modern key names).'''
 
 
-    if os.geteuid():
-        filename = os.path.expanduser('~/.local/share/lxc/%s/config' % name)
-    else:
-        filename = '/var/lib/lxc/%s/config' % name
+    filename = os.path.join(_container_path(name), 'config')
 
     if not file_exist(filename):
         return empty_container_settings('Config file is missing.')
@@ -485,11 +597,7 @@ def container_config_path(name):
 
     if not name or not re.match(r'^[A-Za-z0-9_-]+$', name):
         return ''
-    if os.geteuid():
-        base = os.path.expanduser('~/.local/share/lxc')
-    else:
-        base = '/var/lib/lxc'
-    return os.path.join(base, name, 'config')
+    return os.path.join(_container_path(name), 'config')
 
 
 def read_container_config(name):
@@ -649,11 +757,7 @@ def push_config_value(key, value, container=None):
             return values
 
     if container:
-        if os.geteuid():
-            filename = os.path.expanduser('~/.local/share/lxc/%s/config' %
-                                          container)
-        else:
-            filename = '/var/lib/lxc/%s/config' % container
+        filename = os.path.join(_container_path(container), 'config')
 
         save = save_repeatable_options(filename=filename)
 

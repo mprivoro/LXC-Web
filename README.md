@@ -1,6 +1,6 @@
 # LXC-Web
 
-Web UI for **LXC** (`lxc-*` tools, containers under `/var/lib/lxc`).
+Web UI for **LXC** (`lxc-*` tools, containers under `lxc.lxcpath` from `/etc/lxc/lxc.conf`).
 
 This is not a UI for **LXD** or **Incus**. Those are separate projects and already have their own panels. LXC-Web talks to classic LXC only.
 
@@ -28,7 +28,7 @@ cd LXC-Web
 
 ## Install / run
 
-Needs Python 3, pip, and LXC. Run as root so the panel can read `/var/lib/lxc`.
+Needs Python 3, pip, and LXC. Run as root so the panel can read the LXC store (`lxc.lxcpath`).
 
 ```bash
 apt install -y python3 python3-pip lxc

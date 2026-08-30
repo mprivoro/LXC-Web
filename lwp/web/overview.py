@@ -39,7 +39,9 @@ def _overview_row(container, running=False):
         diskusg = 0
     if inf.get('state') != 'BROKEN':
         try:
-            memusg = lwp.memory_usage(container)
+            memusg = lwp.memory_usage(
+                container,
+                known_live=(inf.get('state') in ('RUNNING', 'FROZEN')))
         except Exception:
             memusg = 0
         try:
@@ -69,6 +71,33 @@ def _overview_row(container, running=False):
     }
 
 
+def _overview_groups(listx):
+    '''Turn lxc.listx() into the containers_all structure the templates use.'''
+
+    containers_all = []
+    for status in ['RUNNING', 'FROZEN', 'STOPPED', 'BROKEN']:
+        containers_by_status = []
+        running = (status == 'RUNNING')
+        for container in listx.get(status, []):
+            try:
+                containers_by_status.append(
+                    _overview_row(container, running))
+            except Exception as e:
+                containers_by_status.append({
+                    'name': container,
+                    'memusg': 0,
+                    'diskusg': 0,
+                    'settings': lwp.empty_container_settings(str(e)),
+                    'snapshots': [],
+                    'error': str(e),
+                })
+        containers_all.append({
+            'status': status.lower(),
+            'containers': containers_by_status
+        })
+    return containers_all
+
+
 def home():
     '''Overview: containers by state, plus host cards. Unauthenticated -> login.'''
 
@@ -79,27 +108,7 @@ def home():
             flash(u'Unable to list containers: %s' % e, 'error')
             listx = {'RUNNING': [], 'FROZEN': [], 'STOPPED': [], 'BROKEN': []}
 
-        containers_all = []
-        for status in ['RUNNING', 'FROZEN', 'STOPPED', 'BROKEN']:
-            containers_by_status = []
-            running = (status == 'RUNNING')
-            for container in listx.get(status, []):
-                try:
-                    containers_by_status.append(
-                        _overview_row(container, running))
-                except Exception as e:
-                    containers_by_status.append({
-                        'name': container,
-                        'memusg': 0,
-                        'diskusg': 0,
-                        'settings': lwp.empty_container_settings(str(e)),
-                        'snapshots': [],
-                        'error': str(e),
-                    })
-            containers_all.append({
-                'status': status.lower(),
-                'containers': containers_by_status
-            })
+        containers_all = _overview_groups(listx)
 
         try:
             names = lxc.ls()
@@ -111,7 +120,12 @@ def home():
                                dist=lwp.check_ubuntu(),
                                templates=lwp.get_templates_list(),
                                images=lwp.get_cached_images(),
-                               console_available=console_ok())
+                               images_dir=lwp.images_download_dir(),
+                               lxc_conf=lxc.lxc_conf_path(),
+                               lxcpath=lxc.lxcpath(),
+                               console_available=console_ok(),
+                               overview_refresh=current_app.config.get(
+                                   'OVERVIEW_REFRESH', 60))
     return render_template('login.html')
 
 
@@ -172,6 +186,24 @@ def refresh_memory_containers(name=None):
             return jsonify({'memusg': 0})
 
 
+def refresh_overview():
+    '''JSON HTML fragments: header counts + CT tables (same markup as home).'''
+
+    if 'logged_in' not in session:
+        return jsonify({}), 401
+    try:
+        listx = lxc.listx()
+    except Exception:
+        listx = {'RUNNING': [], 'FROZEN': [], 'STOPPED': [], 'BROKEN': []}
+    containers_all = _overview_groups(listx)
+    return jsonify(
+        counts=render_template('includes/overview_counts.html',
+                               containers_all=containers_all),
+        live=render_template('includes/overview_live.html',
+                             containers_all=containers_all,
+                             console_available=console_ok()),
+    )
+
 
 def register(app):
     '''Bind Overview, About, and /_refresh_* AJAX URLs.'''
@@ -188,3 +220,5 @@ def register(app):
     app.add_url_rule('/_refresh_memory_<name>',
                      view_func=refresh_memory_containers,
                      endpoint='refresh_memory_containers')
+    app.add_url_rule('/_refresh_overview', view_func=refresh_overview,
+                     endpoint='refresh_overview')
