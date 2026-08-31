@@ -270,7 +270,19 @@ legend { display: none; }
 }
 .page-head h1 { margin: 0; }
 .page-sub { margin: 4px 0 0; color: var(--muted); font-size: 13px; }
-.page-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+.page-actions { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+#overview-autorefresh.is-on {
+  background: var(--ok-bg);
+  color: var(--ok-text);
+  border-color: #abefc6;
+}
+#overview-refresh.is-busy i {
+  animation: overview-spin 0.8s linear infinite;
+}
+@keyframes overview-spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
 
 .host-stats {
   display: grid;
@@ -400,7 +412,7 @@ a.close.destroy:hover { background: var(--danger-bg); }
 .label-info { background: var(--info-bg); color: var(--info-text); }
 .label-warning { background: var(--warn-bg); color: var(--warn-text); }
 .label-important { background: #f2f4f7; color: #475467; }
-a.label.snapshot-info { cursor: pointer; text-decoration: none; }
+a.label.snapshot-info { cursor: pointer; text-decoration: none; white-space: nowrap; }
 a.label.snapshot-info:hover { filter: brightness(0.95); color: inherit; }
 
 .table .label { margin: 1px 3px; }
@@ -501,6 +513,38 @@ tr.warning td { box-shadow: inset 3px 0 0 var(--warn); }
 .ct-group-broken .ct-group-head { background: var(--warn-bg); border-color: #fedf89; }
 .ct-group-broken .table,
 .ct-group-broken .ct-group-empty { border-color: #fedf89; }
+
+.bulk-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin: 0 0 16px;
+  padding: 10px 14px;
+  background: var(--bg-elev);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  position: sticky;
+  top: calc(var(--topbar-h) + 8px);
+  z-index: 10;
+}
+.bulk-bar.is-on { border-color: var(--accent); }
+.bulk-bar-n { color: var(--muted); font-size: 13px; font-weight: 650; }
+.bulk-bar button:disabled { opacity: 0.45; }
+.ct-check {
+  width: 2.25em;
+  text-align: center;
+  vertical-align: middle;
+  padding-left: 10px;
+  padding-right: 4px;
+}
+.ct-check input {
+  margin: 0;
+  width: 15px;
+  height: 15px;
+  cursor: pointer;
+  vertical-align: middle;
+}
 
 .ct-ip { font-family: var(--mono); font-size: 12px; text-align: left; }
 .ct-ip-v4 {

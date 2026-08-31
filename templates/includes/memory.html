@@ -1,7 +1,7 @@
 {# Memory usage labels. Shared by Overview and Edit. Color bands match JS memory_color. #}
 {# memory_color: success / warning / important from MB used. #}
 {% macro memory_color(value) -%}{% if value != 0 %}{% if 0 <= value <= 511 %}success{% elif 512 <= value < 980 %}warning{% else %}important{% endif %}{% endif %}{%- endmacro %}
-{# render_memory_wrapper: colored "N MB" label, or empty if 0. #}
+{# render_memory_wrapper: MB as whole number; GB (from 1024 MB) with one decimal. #}
 {% macro render_memory_wrapper(value) -%}
-	{% if value != 0 %}<span class="label label-{{ memory_color(value) }}">{{ value|qty }} MB</span>{% endif %}
+	{% if value != 0 %}<span class="label label-{{ memory_color(value) }}">{% if value >= 1024 %}{{ (value / 1024)|qty(1) }} GB{% else %}{{ value|qty }} MB{% endif %}</span>{% endif %}
 {%- endmacro %}

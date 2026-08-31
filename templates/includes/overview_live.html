@@ -1,0 +1,112 @@
+{# Overview CT tables + bulk bar. Replaced every 15s by /_refresh_overview. #}
+{% set td = {'running':'success','frozen':'info','stopped':'important','broken':'warning'} %}
+{% set tr = {'running':'success','frozen':'info','stopped':'error','broken':'warning'} %}
+{% from "includes/memory.html" import render_memory_wrapper %}
+{% from "includes/size.html" import format_size_mb, render_disk_wrapper %}
+{% for status in containers_all %}
+	{% if status.status == 'broken' and status.containers %}
+	<div class="alert alert-error dont-hide">
+		LXC cannot load {{ status.containers|count }} container config{{ 's' if status.containers|count != 1 else '' }}. They are listed as Broken — the site stays up so you can inspect or destroy them.
+	</div>
+	{% endif %}
+{% endfor %}
+{% set ns = namespace(picks=false) %}
+{% for status in containers_all %}
+	{% if status.status != 'broken' and status.containers %}
+		{% set ns.picks = true %}
+	{% endif %}
+{% endfor %}
+{% if ns.picks %}
+<div id="bulk-bar" class="bulk-bar">
+	<button type="submit" class="btn btn-small btn-success" name="action" value="start" disabled><i class="icon-play icon-white"></i> Start selected</button>
+	<button type="submit" class="btn btn-small" name="action" value="stop" disabled><i class="icon-stop"></i> Stop selected</button>
+	<span class="bulk-bar-n"><span id="bulk-n">0</span> selected</span>
+</div>
+{% endif %}
+{% for status in containers_all %}
+	{% if status.containers or status.status in ('running', 'stopped') %}
+	<section class="ct-group ct-group-{{ status.status }}">
+		<div class="ct-group-head">
+			<span class="label label-{{ td[status.status] }}">{{ status.status|capitalize }}</span>
+			<span class="ct-group-n">{{ status.containers|count }}</span>
+		</div>
+		{% if status.containers %}
+		<table class="table table-bordered">
+			<thead>
+				<tr>
+					<th class="ct-check">{% if status.status != 'broken' %}<input type="checkbox" class="bulk-all" title="Select all in this group">{% endif %}</th>
+					<th>Name</th>
+					<th>Hostname</th>
+					<th class="ct-ip ct-ip-v4">IPv4</th>
+					<th class="ct-ip ct-ip-v6">IPv6</th>
+					<th>Mem. usage</th>
+					<th>Disk</th>
+					<th>Snapshots</th>
+					<th class="ct-actions">Actions</th>
+				</tr>
+			</thead>
+			<tbody>
+				{% for container in status.containers %}
+				<tr class="{{ tr[status.status] }}">
+					<td class="ct-check">{% if status.status != 'broken' %}<input type="checkbox" class="ct-pick" name="name" value="{{ container.name }}">{% endif %}</td>
+					<td><a href="{{ url_for('edit',container=container.name) }}" title="Click to edit {{container.name}}">{{container.name}}</a></td>
+					<td>
+						{% if container.settings.utsname %}{{ container.settings.utsname }}{% endif %}
+						{% if container.error %}
+							<div><span class="label label-warning">Config broken</span></div>
+							<small>{{ container.error }}</small>
+						{% endif %}
+					</td>
+					<td class="ct-ip ct-ip-v4">
+						{% if status.status == 'broken' %}
+							—
+						{% elif container.settings.flags == 'down' %}
+							Link Down
+						{% elif container.settings.ipv4_addrs %}
+							{% for addr in container.settings.ipv4_addrs %}<div class="ct-ip-line">{{ addr }}</div>{% endfor %}
+						{% else %}
+							<span class="muted">Undefined</span>
+						{% endif %}
+					</td>
+					<td class="ct-ip ct-ip-v6">
+						{% if status.status == 'broken' or container.settings.flags == 'down' %}
+							<span class="muted">—</span>
+						{% elif container.settings.ipv6_addrs %}
+								{% for addr in container.settings.ipv6_addrs %}<div class="ct-ip-line{% if addr.lower().startswith('fe80:') %} ct-ip-ll{% endif %}">{{ addr }}</div>{% endfor %}
+						{% else %}
+							<span class="muted">—</span>
+						{% endif %}
+					</td>
+					<td id="{{container.name}}">{{ render_memory_wrapper(container.memusg) }}</td>
+					<td>{{ render_disk_wrapper(container.diskusg) }}</td>
+					<td>
+						{% if container.snapshots %}
+							{% for snap in container.snapshots %}
+								<a href="#" class="label snapshot-info" data-name="{{ container.name }}" data-snap="{{ snap.name }}" title="{{ snap.created }}{% if snap.comment %} — {{ snap.comment }}{% endif %}{% if snap.path %} — {{ snap.path }}{% endif %}">{{ snap.name }}{% if snap.size_mb %} · {{ format_size_mb(snap.size_mb) }}{% endif %}</a>
+							{% endfor %}
+						{% else %}
+							<span class="muted">—</span>
+						{% endif %}
+					</td>
+					<td class="ct-actions">
+						<div class="btn-toolbar">
+							<div class="btn-group">
+								{% set start_action = {'stopped':'start','frozen':'unfreeze'} %}
+								<a class="btn btn-small{% if status.status == 'running' or status.status == 'broken' %} disabled{% endif %}"{% if status.status == 'stopped' or status.status == 'frozen' %} href="{{ url_for('action', name=container.name, action=start_action[status.status], token=session.token) }}"{% endif %}><i class="icon-play"></i> Start</a>
+								<a class="btn btn-small{% if status.status == 'stopped' or status.status == 'broken' %} disabled{% endif %}"{% if status.status == 'running' or status.status == 'frozen' %} href="{{ url_for('action', name=container.name, action='stop', token=session.token) }}"{% endif %}><i class="icon-stop"></i> Stop</a>
+								<a class="btn btn-small{% if status.status == 'frozen' or status.status == 'stopped' or status.status == 'broken' %} disabled{% endif %}"{% if status.status == 'running' %} href="{{ url_for('action', name=container.name, action='freeze', token=session.token) }}"{% endif %}><i class="icon-pause"></i> Freeze</a>
+								{% if session.su == 'Yes' and status.status == 'running' and console_available %}<a class="btn btn-small btn-inverse console-open" href="{{ url_for('container_console', container=container.name) }}" data-container-name="{{ container.name }}" title="Open attach console in a new window"><i class="icon-list-alt icon-white"></i> Console</a>{% endif %}
+							</div>
+							{% if session.su == 'Yes' %}<a class="pull-right close destroy" data-container-name="{{container.name}}" style="margin-top:4px;"><i class="icon-remove-sign"></i></a>{% endif %}
+						</div>
+					</td>
+				</tr>
+				{% endfor %}
+			</tbody>
+		</table>
+		{% else %}
+		<div class="ct-group-empty">No {{ status.status }} containers.</div>
+		{% endif %}
+	</section>
+	{% endif %}
+{% endfor %}

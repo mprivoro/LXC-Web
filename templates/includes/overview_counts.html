@@ -1,0 +1,6 @@
+{# Header pills: N running / frozen / stopped / broken. #}
+{% for status in containers_all %}
+	{% if status.containers or status.status in ('running', 'stopped') %}
+	<span class="ct-count ct-count-{{ status.status }}">{{ status.containers|count }} {{ status.status }}</span>
+	{% endif %}
+{% endfor %}
