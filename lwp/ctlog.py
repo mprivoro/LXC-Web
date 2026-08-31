@@ -1,61 +1,125 @@
-# Append-only log of container manipulations (commands and results).
-# Path comes from lwp.conf [logging] file.
+# Append-only logs: container commands ([logging] file) and MCP requests
+# ([logging] mcp).
 
+import contextvars
 import os
 import threading
 from datetime import datetime
 
 _lock = threading.Lock()
 _path = None
+_mcp_path = None
 _MAX_OUT = 1000 * 1000
+_actor = contextvars.ContextVar('lwp_log_actor', default=None)
 
 
-def init(path):
-    '''Set log file. Empty path disables logging.'''
+def _bind_path(path):
+    '''Normalize a log path. Empty disables. Creates the directory if needed.'''
 
-    global _path
     path = (path or '').strip()
     if not path:
-        _path = None
-        return
-    _path = path
+        return None
     directory = os.path.dirname(os.path.abspath(path))
     if directory and not os.path.isdir(directory):
         try:
             os.makedirs(directory, exist_ok=True)
         except OSError:
-            _path = None
+            return None
+    return path
+
+
+def init(path):
+    '''Set container command log file. Empty path disables it.'''
+
+    global _path
+    _path = _bind_path(path)
+
+
+def init_mcp(path):
+    '''Set MCP request log file. Empty path disables it.'''
+
+    global _mcp_path
+    _mcp_path = _bind_path(path)
 
 
 def enabled():
-    '''True if a log path was set and the directory could be used.'''
+    '''True if a container log path was set and the directory could be used.'''
 
     return bool(_path)
 
 
 def log_path():
-    '''Absolute or relative path of the log file, or empty if disabled.'''
+    '''Absolute or relative path of the container log, or empty if disabled.'''
 
     return _path or ''
 
 
-def read_log(max_bytes=256 * 1024):
-    '''Return the log file text (tail if large) for the panel view.'''
+def mcp_log_path():
+    '''Absolute or relative path of the MCP log, or empty if disabled.'''
 
+    return _mcp_path or ''
+
+
+def set_actor(user, via=''):
+    '''Attribute following log_cmd / log_mcp lines to this user (MCP or panel).'''
+
+    return _actor.set({'user': user or '-', 'via': via or ''})
+
+
+def reset_actor(token):
+    '''Undo set_actor (pass the token it returned).'''
+
+    _actor.reset(token)
+
+
+def actor_info():
+    '''(user, via) for the current command: MCP identity, else Flask session.'''
+
+    val = _actor.get()
+    if val:
+        return val.get('user') or '-', val.get('via') or ''
+    try:
+        from flask import has_request_context, session
+        if has_request_context():
+            return session.get('username') or '-', 'panel'
+    except Exception:
+        pass
+    return '-', ''
+
+
+def read_log(max_bytes=256 * 1024):
+    '''Return the container log text (tail if large) for the panel view.'''
+
+    return _read_file(
+        _path, max_bytes,
+        empty='Logging is disabled ([logging] file is empty).',
+        missing='Log file does not exist yet. It is created on the first container action.')
+
+
+def read_mcp_log(max_bytes=256 * 1024):
+    '''Return the MCP request log text (tail if large) for the panel view.'''
+
+    return _read_file(
+        _mcp_path, max_bytes,
+        empty='MCP logging is disabled ([logging] mcp is empty).',
+        missing='MCP log file does not exist yet. It is created on the first MCP request.')
+
+
+def _read_file(path, max_bytes, empty, missing):
     info = {
-        'path': _path or '',
+        'path': path or '',
         'text': '',
         'error': '',
         'truncated': False,
         'size': 0,
     }
-    if not _path:
-        info['error'] = 'Logging is disabled ([logging] file is empty).'
+    if not path:
+        info['error'] = empty
         return info
     try:
-        size = os.path.getsize(_path)
+        size = os.path.getsize(path)
     except FileNotFoundError:
-        info['error'] = 'Log file does not exist yet. It is created on the first container action.'
+        info['error'] = missing
         return info
     except OSError as e:
         info['error'] = str(e)
@@ -63,7 +127,7 @@ def read_log(max_bytes=256 * 1024):
     info['size'] = size
     try:
         with _lock:
-            with open(_path) as fh:
+            with open(path) as fh:
                 if size > max_bytes:
                     fh.seek(size - max_bytes)
                     fh.readline()
@@ -122,30 +186,46 @@ def log_cmd(cmd, rc, output=''):
         body = output.rstrip() + truncated
     else:
         body = '(empty)'
+    user, via = actor_info()
     block = (
         '----- %s -----\n'
         'user: %s\n'
+        'via: %s\n'
         'cmd: %s\n'
         'rc: %s\n'
         'out:\n%s\n\n'
-    ) % (datetime.now().strftime('%Y-%m-%d %H:%M:%S'), _user(),
+    ) % (datetime.now().strftime('%Y-%m-%d %H:%M:%S'), user, via or '-',
          cmd_str(cmd), rc, body)
+    _append(_path, block)
+
+
+def log_mcp(fields):
+    '''Append one MCP request block. fields is an ordered list of (key, value).'''
+
+    if not _mcp_path:
+        return
+    user, via = actor_info()
+    lines = [
+        '----- %s -----' % datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+        'user: %s' % user,
+        'via: %s' % (via or 'MCP'),
+    ]
+    for key, value in fields:
+        if value is None:
+            continue
+        text = str(value)
+        if '\n' in text:
+            lines.append('%s:\n%s' % (key, text.rstrip()))
+        else:
+            lines.append('%s: %s' % (key, text))
+    _append(_mcp_path, '\n'.join(lines) + '\n\n')
+
+
+def _append(path, block):
     try:
         with _lock:
-            with open(_path, 'a') as fh:
+            with open(path, 'a') as fh:
                 fh.write(block)
                 fh.flush()
     except OSError:
         pass
-
-
-def _user():
-    '''Session username if this ran inside a request, else '-'.'''
-
-    try:
-        from flask import has_request_context, session
-        if has_request_context():
-            return session.get('username') or '-'
-    except Exception:
-        pass
-    return '-'

@@ -34,6 +34,13 @@
 							<input type="hidden" name="newUser" value="False">
 							<button type="submit" class="btn">Update</button>
 						</form>
+						<form class="form-inline mcp-token-form" method="post">
+							<input type="hidden" name="username" value="{{ user.username }}">
+							<input type="hidden" name="mcp_action" value="regenerate">
+							<label class="mcp-token-label">MCP token</label>
+							<span class="mcp-token-hint">Hashed in the database. Copy it when created or regenerated — it cannot be shown again.</span>
+							<button type="submit" class="btn btn-small">Regenerate</button>
+						</form>
 					</div>
 				</div>
 			</div>

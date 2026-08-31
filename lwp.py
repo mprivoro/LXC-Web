@@ -32,6 +32,7 @@
 # optional WebSocket console, then app.run(). Views are not in this file.
 
 import argparse
+import os
 import sys
 
 import lxclite as lxc
@@ -65,6 +66,11 @@ except (configparser.NoSectionError, configparser.NoOptionError):
     CONTAINER_LOG = 'lwp-containers.log'
 ctlog.init(CONTAINER_LOG)
 try:
+    MCP_LOG = config.get('logging', 'mcp', raw=True).strip()
+except (configparser.NoSectionError, configparser.NoOptionError):
+    MCP_LOG = 'lwp-mcp.log'
+ctlog.init_mcp(MCP_LOG)
+try:
     LXC_CONF = config.get('lxc', 'conf').strip()
 except (configparser.NoSectionError, configparser.NoOptionError):
     LXC_CONF = '/etc/lxc/lxc.conf'
@@ -90,6 +96,29 @@ if OVERVIEW_REFRESH < 5:
     OVERVIEW_REFRESH = 5
 elif OVERVIEW_REFRESH > 3600:
     OVERVIEW_REFRESH = 3600
+try:
+    MCP_ENABLED = config.getboolean('mcp', 'enabled')
+except (configparser.NoSectionError, configparser.NoOptionError):
+    MCP_ENABLED = True
+try:
+    MCP_URL = config.get('mcp', 'url').strip()
+except (configparser.NoSectionError, configparser.NoOptionError):
+    MCP_URL = ''
+if not MCP_URL:
+    mcp_host, mcp_port = '127.0.0.1', 5001
+    try:
+        mcp_host = config.get('mcp', 'address').strip() or mcp_host
+    except (configparser.NoSectionError, configparser.NoOptionError):
+        pass
+    try:
+        mcp_port = int(config.get('mcp', 'port'))
+    except (configparser.NoSectionError, configparser.NoOptionError, ValueError):
+        pass
+    MCP_URL = 'http://%s:%s/mcp' % (mcp_host, mcp_port)
+try:
+    MCP_KEY = config.get('mcp', 'key', raw=True).strip()
+except (configparser.NoSectionError, configparser.NoOptionError):
+    MCP_KEY = ''
 
 
 # Flask app
@@ -134,10 +163,36 @@ def teardown_request(exception):
         g.db.close()
 
 
+def _start_mcp(debug):
+    '''HTTP MCP in a daemon thread. Skip the Flask reloader parent.'''
+
+    if not MCP_ENABLED:
+        return
+    if debug and os.environ.get('WERKZEUG_RUN_MAIN') != 'true':
+        return
+    try:
+        from lwp.mcp_server import parse_mcp_url, start_background
+    except ImportError:
+        print('MCP extra missing (`pip3 install mcp`, Python 3.10+). '
+              'Panel runs without it.', file=sys.stderr)
+        return
+    try:
+        spec = parse_mcp_url(MCP_URL)
+        start_background(spec['url'])
+        print('MCP server %s' % spec['url'], file=sys.stderr)
+    except Exception as e:
+        print('MCP server failed to start: %s' % e, file=sys.stderr)
+
+
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='LXC-Web panel')
     parser.add_argument('-d', '--debug', action='store_true',
                         help='run with Flask debug mode (reloader and debugger)')
+    parser.add_argument('--no-mcp', action='store_true',
+                        help='do not start the MCP HTTP server')
     args = parser.parse_args()
     debug = args.debug or app.config.get('DEBUG', False)
+    if args.no_mcp:
+        MCP_ENABLED = False
+    _start_mcp(debug)
     app.run(host=app.config['ADDRESS'], port=app.config['PORT'], debug=debug)

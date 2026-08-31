@@ -59,6 +59,7 @@ from lwp.host import (
     host_memory_usage,
     host_uptime,
 )
+from lwp.util import RE_IFACE, format_bytes, format_qty, matches
 
 
 class CalledProcessError(Exception):
@@ -247,6 +248,145 @@ def memory_usage(name, known_live=None):
         except (subprocess.CalledProcessError, ValueError, OSError):
             continue
     return 0
+
+
+_live_samples = {}
+
+
+def _cgroup_output(name, key):
+    '''Raw lxc-cgroup stdout, or ''.'''
+
+    try:
+        return subprocess.check_output(
+            ['lxc-cgroup', '-n', name, key],
+            stderr=subprocess.DEVNULL,
+            universal_newlines=True)
+    except (subprocess.CalledProcessError, OSError):
+        return ''
+
+
+def cpu_usage_usec(name):
+    '''CPU time used by the CT, in microseconds. None if unavailable.'''
+
+    text = _cgroup_output(name, 'cpu.stat')
+    for line in text.splitlines():
+        parts = line.split()
+        if len(parts) >= 2 and parts[0] == 'usage_usec':
+            try:
+                return int(parts[1])
+            except ValueError:
+                return None
+    text = _cgroup_output(name, 'cpuacct.usage').strip()
+    if text.isdigit():
+        return int(text) // 1000
+    return None
+
+
+def _sysfs_u64(path):
+    try:
+        with open(path) as fh:
+            return int(fh.read().strip())
+    except (OSError, ValueError):
+        return 0
+
+
+def veth_bytes(links):
+    '''
+    Container-direction RX/TX in bytes, summed over host veth names.
+    Host tx → guest RX, host rx → guest TX (same as lxc-info).
+    '''
+
+    rx = tx = 0
+    for link in links or []:
+        if not matches(RE_IFACE, link):
+            continue
+        base = os.path.join('/sys/class/net', link, 'statistics')
+        if not os.path.isdir(base):
+            continue
+        rx += _sysfs_u64(os.path.join(base, 'tx_bytes'))
+        tx += _sysfs_u64(os.path.join(base, 'rx_bytes'))
+    return rx, tx
+
+
+def _cpu_color(pct):
+    if pct is None:
+        return ''
+    if pct < 25:
+        return 'success'
+    if pct < 80:
+        return 'warning'
+    return 'danger'
+
+
+def empty_live_metrics():
+    '''Placeholder CPU/net fields for stopped or broken rows.'''
+
+    return {
+        'cpu_pct': None,
+        'cpu_label': '',
+        'cpu_color': '',
+        'cpu_title': '',
+        'net_rx_label': '',
+        'net_tx_label': '',
+        'net_title': '',
+    }
+
+
+def forget_live_sample(name):
+    '''Drop the last CPU/net sample (CT stopped or restarted).'''
+
+    _live_samples.pop(name, None)
+
+
+def container_live_metrics(name, links=None):
+    '''
+    CPU % of one core and network rates since the last sample.
+    First sample: CPU is empty, net shows lifetime totals.
+    '''
+
+    out = empty_live_metrics()
+    cpu = cpu_usage_usec(name)
+    rx, tx = veth_bytes(links)
+    now = time.time()
+    prev = _live_samples.get(name)
+    _live_samples[name] = {'t': now, 'cpu': cpu, 'rx': rx, 'tx': tx}
+
+    if rx or tx:
+        out['net_rx_label'] = format_bytes(rx)
+        out['net_tx_label'] = format_bytes(tx)
+        out['net_title'] = 'Lifetime: ↓ %s  ↑ %s' % (
+            format_bytes(rx), format_bytes(tx))
+
+    if not prev:
+        return out
+    dt = now - prev['t']
+    if dt < 0.5:
+        return out
+
+    if cpu is not None and prev.get('cpu') is not None:
+        dcpu = cpu - prev['cpu']
+        if dcpu >= 0:
+            pct = (dcpu / 1e6) / dt * 100.0
+            ncpu = os.cpu_count() or 1
+            host_pct = pct / float(ncpu)
+            out['cpu_pct'] = pct
+            out['cpu_label'] = '%s%% (%s%%)' % (
+                format_qty(pct, 1), format_qty(host_pct, 1))
+            out['cpu_color'] = _cpu_color(pct)
+            out['cpu_title'] = (
+                'Since last refresh. 100%% = one full core; '
+                '%s host CPUs = %s%%. '
+                'Figure in parentheses is the share of the whole host.'
+                % (ncpu, format_qty(ncpu * 100)))
+
+    drx = rx - prev['rx']
+    dtx = tx - prev['tx']
+    if drx >= 0 and dtx >= 0:
+        out['net_rx_label'] = format_bytes(drx / dt, per_sec=True)
+        out['net_tx_label'] = format_bytes(dtx / dt, per_sec=True)
+        out['net_title'] = 'Lifetime: ↓ %s  ↑ %s' % (
+            format_bytes(rx), format_bytes(tx))
+    return out
 
 
 _disk_cache = {}

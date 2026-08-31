@@ -171,13 +171,14 @@ def info(container):
             proc.kill()
             proc.communicate()
             return {'state': 'BROKEN', 'pid': '0',
-                    'error': 'lxc-info timed out'}
+                    'error': 'lxc-info timed out', 'links': []}
     except OSError as e:
         return {'state': 'BROKEN', 'pid': '0',
-                'error': 'lxc-info failed: {}'.format(e)}
+                'error': 'lxc-info failed: {}'.format(e), 'links': []}
 
     state = ''
     pid = '0'
+    links = []
     for line in (out or '').splitlines():
         if ':' not in line:
             continue
@@ -188,18 +189,22 @@ def info(container):
             state = val.split()[0].upper()
         elif key == 'pid' and val:
             pid = val.split()[0]
+        elif key == 'link' and val:
+            iface = val.split()[0]
+            if iface and iface != 'lo':
+                links.append(iface)
 
     if proc.returncode != 0 or not state:
         error = _config_load_error(err, out)
         cfg = os.path.join(_container_path(container), 'config')
         if not os.path.isfile(cfg):
             error = 'Config file is missing.'
-        return {'state': 'BROKEN', 'pid': '0', 'error': error}
+        return {'state': 'BROKEN', 'pid': '0', 'error': error, 'links': []}
 
     if state == 'STOPPED':
         pid = '0'
 
-    return {'state': state, 'pid': pid, 'error': ''}
+    return {'state': state, 'pid': pid, 'error': '', 'links': links}
 
 def _unique_keep(seq):
     '''Dedupe a list, keep first-seen order.'''

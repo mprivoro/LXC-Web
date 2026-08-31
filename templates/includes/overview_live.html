@@ -1,4 +1,4 @@
-{# Overview CT tables + bulk bar. Replaced every 15s by /_refresh_overview. #}
+{# Overview CT tables + bulk bar. Replaced by /_refresh_overview. #}
 {% set td = {'running':'success','frozen':'info','stopped':'important','broken':'warning'} %}
 {% set tr = {'running':'success','frozen':'info','stopped':'error','broken':'warning'} %}
 {% from "includes/memory.html" import render_memory_wrapper %}
@@ -39,7 +39,9 @@
 					<th>Hostname</th>
 					<th class="ct-ip ct-ip-v4">IPv4</th>
 					<th class="ct-ip ct-ip-v6">IPv6</th>
+					<th class="ct-cpu">CPU</th>
 					<th>Mem. usage</th>
+					<th class="ct-net">Net</th>
 					<th>Disk</th>
 					<th>Snapshots</th>
 					<th class="ct-actions">Actions</th>
@@ -72,12 +74,14 @@
 						{% if status.status == 'broken' or container.settings.flags == 'down' %}
 							<span class="muted">—</span>
 						{% elif container.settings.ipv6_addrs %}
-								{% for addr in container.settings.ipv6_addrs %}<div class="ct-ip-line{% if addr.lower().startswith('fe80:') %} ct-ip-ll{% endif %}">{{ addr }}</div>{% endfor %}
+							{% for addr in container.settings.ipv6_addrs %}<div class="ct-ip-line{% if addr.lower().startswith('fe80:') %} ct-ip-ll{% endif %}">{{ addr }}</div>{% endfor %}
 						{% else %}
 							<span class="muted">—</span>
 						{% endif %}
 					</td>
+					<td class="ct-cpu">{% if container.cpu_label %}<span class="label label-{{ container.cpu_color }}" title="{{ container.cpu_title }}">{{ container.cpu_label }}</span>{% else %}<span class="muted" title="CPU % appears after the next refresh">—</span>{% endif %}</td>
 					<td id="{{container.name}}">{{ render_memory_wrapper(container.memusg) }}</td>
+					<td class="ct-net">{% if container.net_rx_label %}<div class="ct-net-rx" title="{{ container.net_title }}">↓ {{ container.net_rx_label }}</div><div class="ct-net-tx" title="{{ container.net_title }}">↑ {{ container.net_tx_label }}</div>{% else %}<span class="muted">—</span>{% endif %}</td>
 					<td>{{ render_disk_wrapper(container.diskusg) }}</td>
 					<td>
 						{% if container.snapshots %}
