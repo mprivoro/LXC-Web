@@ -1,15 +1,21 @@
-{# Su-only tail of lwp-containers.log (mutations via lxclite). #}
+{# Su-only tail of container or MCP logs. #}
 {% extends "layout.html" %}
-{% block title %}Log{% endblock %}
+{% block title %}{% if view == 'mcp' %}MCP log{% else %}Container log{% endif %}{% endblock %}
 {% block content %}
 <div class="span9">
 	{{ super() }}
 	<div class="page-head">
 		<div>
-			<h1>Container log</h1>
+			<h1>{% if view == 'mcp' %}MCP log{% else %}Container log{% endif %}</h1>
 			<p class="page-sub">{% if log.path %}<code>{{ log.path }}</code>{% if log.size %} — {{ log.size }} bytes{% endif %}{% else %}Logging disabled{% endif %}</p>
 		</div>
-		<a class="btn btn-small" href="{{ url_for('container_log') }}"><i class="icon-refresh"></i> Refresh</a>
+		<div class="page-actions">
+			<div class="btn-group">
+				<a class="btn btn-small{% if view != 'mcp' %} active{% endif %}" href="{{ url_for('container_log') }}">Containers</a>
+				<a class="btn btn-small{% if view == 'mcp' %} active{% endif %}" href="{{ url_for('container_log', view='mcp') }}">MCP</a>
+			</div>
+			<a class="btn btn-small" href="{{ url_for('container_log', view='mcp') if view == 'mcp' else url_for('container_log') }}"><i class="icon-refresh"></i> Refresh</a>
+		</div>
 	</div>
 	{% if log.truncated %}<div class="alert alert-info dont-hide">Showing the tail of the file (last 256 KB).</div>{% endif %}
 	{% if log.error %}

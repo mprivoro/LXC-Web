@@ -3,14 +3,14 @@
 import lxclite as lxc
 import lwp
 import lwp.ctlog as ctlog
-from lwp.auth import hash_passwd, query_db
+from lwp.auth import hash_mcp_token, hash_passwd, new_mcp_token, query_db
 from lwp.util import (IPV4, RE_BYTE, RE_DISPLAY_NAME, RE_IFACE, RE_USERNAME,
                       matches)
-from flask import abort, flash, redirect, render_template, request, session, url_for
+from flask import abort, flash, g, redirect, render_template, request, session, url_for
 
 
 def container_log():
-    '''Show the container command log (su).'''
+    '''Show the container command log or the MCP request log (su).'''
 
     if 'logged_in' not in session:
         return render_template('login.html')
@@ -20,7 +20,13 @@ def container_log():
         names = lxc.ls()
     except Exception:
         names = []
-    return render_template('log.html', containers=names, log=ctlog.read_log())
+    view = request.args.get('view', '')
+    if view == 'mcp':
+        log = ctlog.read_mcp_log()
+    else:
+        view = 'containers'
+        log = ctlog.read_log()
+    return render_template('log.html', containers=names, log=log, view=view)
 
 
 def lxc_net():
@@ -131,6 +137,21 @@ def lwp_users():
             users = query_db('SELECT id, name, username, su FROM users '
                              'ORDER BY id ASC')
 
+            if request.form.get('mcp_action') == 'regenerate':
+                username = request.form.get('username', '')
+                if username in [user['username'] for user in users]:
+                    token = new_mcp_token(g.db)
+                    g.db.execute(
+                        'UPDATE users SET mcp_token=? WHERE username=?',
+                        [hash_mcp_token(token), username])
+                    g.db.commit()
+                    flash(u'New MCP token for %s (copy now — it cannot be '
+                          u'shown again): %s' % (username, token),
+                          'success dont-hide')
+                else:
+                    flash(u'Unknown user.', 'error')
+                return redirect(url_for('lwp_users'))
+
             if request.form['newUser'] == 'True':
                 if not request.form['username'] in \
                         [user['username'] for user in users]:
@@ -138,30 +159,41 @@ def lwp_users():
                             request.form['password1']:
                         if request.form['password1'] == \
                                 request.form['password2']:
+                            created = False
+                            raw_token = None
                             if request.form['name']:
                                 if matches(RE_DISPLAY_NAME, request.form['name']):
+                                    raw_token = new_mcp_token(g.db)
                                     g.db.execute(
                                         "INSERT INTO users "
-                                        "(name, username, password) "
-                                        "VALUES (?, ?, ?)",
+                                        "(name, username, password, mcp_token) "
+                                        "VALUES (?, ?, ?, ?)",
                                         [request.form['name'],
                                          request.form['username'],
                                          hash_passwd(
-                                             request.form['password1'])])
+                                             request.form['password1']),
+                                         hash_mcp_token(raw_token)])
                                     g.db.commit()
+                                    created = True
                                 else:
                                     flash(u'Invalid name!', 'error')
                             else:
+                                raw_token = new_mcp_token(g.db)
                                 g.db.execute("INSERT INTO users "
-                                             "(username, password) VALUES "
-                                             "(?, ?)",
+                                             "(username, password, mcp_token) "
+                                             "VALUES (?, ?, ?)",
                                              [request.form['username'],
                                               hash_passwd(
-                                                  request.form['password1'])])
+                                                  request.form['password1']),
+                                              hash_mcp_token(raw_token)])
                                 g.db.commit()
+                                created = True
 
-                            flash(u'Created %s' % request.form['username'],
-                                  'success')
+                            if created:
+                                flash(u'Created %s. MCP token (copy now — '
+                                      u'it cannot be shown again): %s' %
+                                      (request.form['username'], raw_token),
+                                      'success dont-hide')
                         else:
                             flash(u'No password match', 'error')
                     else:

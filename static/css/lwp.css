@@ -372,6 +372,11 @@ legend { display: none; }
 }
 .btn-group .btn:first-child { border-radius: 8px 0 0 8px; margin-left: 0; }
 .btn-group .btn:last-child { border-radius: 0 8px 8px 0; }
+.btn-group .btn.active {
+  background: var(--text);
+  color: #fff;
+  border-color: var(--text);
+}
 .btn-toolbar { display: flex; align-items: center; gap: 8px; justify-content: center; margin: 0; }
 
 .close {
@@ -412,6 +417,7 @@ a.close.destroy:hover { background: var(--danger-bg); }
 .label-info { background: var(--info-bg); color: var(--info-text); }
 .label-warning { background: var(--warn-bg); color: var(--warn-text); }
 .label-important { background: #f2f4f7; color: #475467; }
+.label-danger { background: var(--danger-bg); color: var(--danger-text); }
 a.label.snapshot-info { cursor: pointer; text-decoration: none; white-space: nowrap; }
 a.label.snapshot-info:hover { filter: brightness(0.95); color: inherit; }
 
@@ -560,6 +566,22 @@ tr.warning td { box-shadow: inset 3px 0 0 var(--warn); }
 }
 .ct-ip-line { line-height: 1.35; }
 .ct-ip-ll { color: var(--muted); font-size: 10px; }
+.ct-cpu {
+  width: 1%;
+  white-space: nowrap;
+  text-align: center;
+  vertical-align: middle;
+}
+.ct-net {
+  width: 1%;
+  white-space: nowrap;
+  font-family: var(--mono);
+  font-size: 12px;
+  line-height: 1.35;
+  vertical-align: middle;
+}
+.ct-net-rx { color: var(--text); }
+.ct-net-tx { color: var(--muted); }
 .ct-actions {
   width: 1%;
   min-width: 22em;
@@ -613,6 +635,7 @@ tr.warning td { box-shadow: inset 3px 0 0 var(--warn); }
   background: var(--info-bg);
   color: var(--info-text);
   border: 1px solid #b2ddff;
+  overflow-wrap: anywhere;
 }
 .alert .close { color: inherit; }
 .alert-success { background: var(--ok-bg); color: var(--ok-text); border-color: #abefc6; }
@@ -779,6 +802,27 @@ input[type="range"] { width: 180px; max-width: 50%; }
   font-weight: 600;
 }
 .accordion-inner { padding: 0 16px 16px; }
+.mcp-token-form {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px solid var(--line);
+}
+.mcp-token-label {
+  font-size: 12px;
+  font-weight: 650;
+  color: var(--muted);
+  margin: 0;
+}
+.mcp-token-hint {
+  flex: 1 1 220px;
+  min-width: 0;
+  font-size: 12px;
+  color: var(--muted);
+}
 .collapse {
   position: relative;
   height: 0;

@@ -65,3 +65,25 @@ def format_qty(value, decimals=0):
         intpart, frac = formatted.split('.')
         return '%s.%s' % (_group_thousands(intpart), frac)
     return _group_thousands(str(int(round(n))))
+
+
+def format_bytes(n, per_sec=False):
+    '''Compact size: whole B/KB/MB, GB with one decimal. Optional /s.'''
+
+    try:
+        n = float(n)
+    except (TypeError, ValueError):
+        return ''
+    if n < 0:
+        n = 0
+    if n < 1024:
+        label = '%s B' % format_qty(n)
+    elif n < 1024 ** 2:
+        label = '%s KB' % format_qty(n / 1024)
+    elif n < 1024 ** 3:
+        label = '%s MB' % format_qty(n / 1024 ** 2)
+    else:
+        label = '%s GB' % format_qty(n / 1024 ** 3, 1)
+    if per_sec:
+        label += '/s'
+    return label

@@ -15,7 +15,7 @@ def _overview_row(container, running=False):
     try:
         inf = lxc.info(container)
     except Exception as e:
-        inf = {'state': 'BROKEN', 'pid': '0', 'error': str(e)}
+        inf = {'state': 'BROKEN', 'pid': '0', 'error': str(e), 'links': []}
     error = inf.get('error') or ''
 
     try:
@@ -33,6 +33,7 @@ def _overview_row(container, running=False):
     memusg = 0
     diskusg = 0
     snaps = []
+    live = lwp.empty_live_metrics()
     try:
         diskusg = lwp.container_disk_usage(container)
     except Exception:
@@ -48,20 +49,28 @@ def _overview_row(container, running=False):
             snaps = lxc.snapshots(container)
         except Exception:
             snaps = []
-        if running:
+        if inf.get('state') in ('RUNNING', 'FROZEN'):
             try:
-                live = lxc.ip_addresses(container, True)
-                if live['ipv4'] or live['ipv6']:
-                    settings['ipv4_addrs'] = live['ipv4']
-                    settings['ipv6_addrs'] = live['ipv6']
-                    settings['ipv4'] = ' '.join(live['ipv4'])
-                    settings['ipv6'] = ' '.join(live['ipv6'])
+                live = lwp.container_live_metrics(
+                    container, inf.get('links') or [])
             except Exception:
-                pass
+                live = lwp.empty_live_metrics()
+            if running:
+                try:
+                    addrs = lxc.ip_addresses(container, True)
+                    if addrs['ipv4'] or addrs['ipv6']:
+                        settings['ipv4_addrs'] = addrs['ipv4']
+                        settings['ipv6_addrs'] = addrs['ipv6']
+                        settings['ipv4'] = ' '.join(addrs['ipv4'])
+                        settings['ipv6'] = ' '.join(addrs['ipv6'])
+                except Exception:
+                    pass
+        else:
+            lwp.forget_live_sample(container)
     elif not error:
         error = 'LXC cannot load this container config.'
 
-    return {
+    row = {
         'name': container,
         'memusg': memusg,
         'diskusg': diskusg,
@@ -69,6 +78,8 @@ def _overview_row(container, running=False):
         'snapshots': snaps,
         'error': error,
     }
+    row.update(live)
+    return row
 
 
 def _overview_groups(listx):
@@ -90,6 +101,7 @@ def _overview_groups(listx):
                     'settings': lwp.empty_container_settings(str(e)),
                     'snapshots': [],
                     'error': str(e),
+                    **lwp.empty_live_metrics(),
                 })
         containers_all.append({
             'status': status.lower(),
