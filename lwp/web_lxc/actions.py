@@ -115,7 +115,7 @@ def action():
             elif action == 'reboot' and name == 'host':
                 if session['su'] != 'Yes':
                     return abort(403)
-                msg = '\v*** LXC Web Panel *** \
+                msg = '\v*** NoDeck *** \
                         \nReboot from web panel'
                 try:
                     lxc._run('/sbin/shutdown -r now \'%s\'' % msg)

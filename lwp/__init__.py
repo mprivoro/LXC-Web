@@ -1,9 +1,6 @@
-# LXC Python Library
-# for compatibility with LXC 0.8 and 0.9
-# on Ubuntu 12.04/12.10/13.04
-
+# NoDeck — container config I/O, cgroup memory, templates/images, lxc-net.
 # Author: Michael Privorotsky
-# https://github.com/mprivoro/LXC-Web
+# https://github.com/mprivoro/NoDeck
 
 # The MIT License (MIT)
 # Copyright (c) 2013 Antoine TANZILLI, Élie DELOUMEAU

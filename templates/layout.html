@@ -7,7 +7,7 @@
 		<meta name="viewport" content="width=device-width, initial-scale=1.0">
 		<meta name="author" content="Michael Privorotsky">
 		<link href="{{ url_for('static', filename='css/bootstrapSwitch.css') }}" rel="stylesheet">
-		<link href="{{ url_for('static', filename='css/lwp.css') }}?v=37" rel="stylesheet">
+		<link href="{{ url_for('static', filename='css/lwp.css') }}?v=38" rel="stylesheet">
 		<link rel="shortcut icon" href="{{ url_for('static', filename='ico/favicon.ico') }}">
 	</head>
 	<body class="{% if session.logged_in %}is-app{% else %}is-login{% endif %}">
@@ -38,7 +38,7 @@
 
 		{% if session.logged_in %}
 				<footer id="footer">
-					<p class="muted credit"><small>{{ panel_brand }} — <a href="{{ url_for('about') }}" class="muted">MIT License</a></small></p>
+					<p class="muted credit"><small>{{ panel_brand }} — {{ panel_title }} — <a href="{{ url_for('about') }}" class="muted">MIT License</a></small></p>
 				</footer>
 			</div>
 		{% endif %}

@@ -3,7 +3,7 @@
 # on Ubuntu 12.04/12.10/13.04
 
 # Author: Michael Privorotsky
-# https://github.com/mprivoro/LXC-Web
+# https://github.com/mprivoro/NoDeck
 
 # The MIT License (MIT)
 # Copyright (c) 2013 Élie DELOUMEAU

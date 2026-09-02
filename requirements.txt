@@ -1,12 +1,16 @@
-# LXC-Web Python dependencies (Python 3.8+)
+# NoDeck Python dependencies (Python 3.8+)
 #   pip3 install -r requirements.txt
 #
 # Stdlib is not listed (argparse, sqlite3, subprocess, configparser, …).
-# Host LXC tools (`lxc-*`) are not a pip package — install via apt.
+# Host tools are not pip packages: LXC (`lxc-*`) and, for VMs, libvirt
+# (`virsh`, `virt-clone`).
 
 Flask>=2.0
 flask-sock>=0.5
 simple-websocket>=0.10
 ptyprocess>=0.7
 # MCP server (python3 lwp.py starts it next to the panel). Skip on 3.8/3.9.
+# uvicorn and anyio are imported by lwp.mcp_server for Streamable HTTP.
 mcp>=2.0; python_version >= "3.10"
+anyio>=4.9; python_version >= "3.10"
+uvicorn>=0.31.1; python_version >= "3.10"

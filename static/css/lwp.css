@@ -1,4 +1,4 @@
-/* LXC-Web UI
+/* NoDeck UI
  * Copyright (c) 2026 Michael Privorotsky
  * Based on LXC Web Panel, Copyright (c) 2013 Antoine TANZILLI, Élie DELOUMEAU
  * MIT License
@@ -121,6 +121,14 @@ legend { display: none; }
   font-size: 16px;
   letter-spacing: -0.03em;
   text-decoration: none !important;
+}
+.lwp-brand-sub {
+  display: block;
+  margin-top: 3px;
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0;
+  color: var(--sidebar-muted);
 }
 .lwp-brand:hover { color: #fff !important; }
 
@@ -930,8 +938,21 @@ input[type="range"] { width: 180px; max-width: 50%; }
   padding: 28px 28px 24px;
   box-shadow: var(--shadow);
 }
-.form-signin h1 { margin: 0 0 4px; font-size: 24px; }
+.form-signin h1 { margin: 0 0 2px; font-size: 24px; }
+.form-signin-product {
+  margin: 0 0 12px;
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
 .form-signin .muted { margin-bottom: 20px; }
+.about-product {
+  margin: -2px 0 10px;
+  font-size: 16px;
+  font-weight: 600;
+}
+.about-name-game { color: var(--muted); }
 .form-signin .control-group { margin-bottom: 14px; }
 .form-signin .control-label { text-align: left; width: auto; }
 .form-signin input[type="text"],

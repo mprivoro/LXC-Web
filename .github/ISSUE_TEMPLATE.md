@@ -13,6 +13,6 @@
 ### Specifications
 
   - LXC Version:
-  - LWP Version:
+  - NoDeck Version:
   - OS Name:
   - OS Version:
