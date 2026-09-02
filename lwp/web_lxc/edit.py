@@ -283,7 +283,7 @@ def edit(container=None):
             raw_config = ''
         config_has_bak = bool(config_path and
                               os.path.isfile(config_path + '.bak'))
-        return render_template('edit.html', containers=lxc.ls(),
+        return render_template('lxc/edit.html', containers=lxc.ls(),
                                container=container, infos=infos,
                                settings=settings,
                                host_memory=host_memory,

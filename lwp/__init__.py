@@ -59,7 +59,8 @@ from lwp.host import (
     host_memory_usage,
     host_uptime,
 )
-from lwp.util import RE_IFACE, format_bytes, format_qty, matches
+from lwp.util import (
+    RE_IFACE, cpu_color, empty_live_metrics, format_bytes, format_qty, matches)
 
 
 class CalledProcessError(Exception):
@@ -308,30 +309,6 @@ def veth_bytes(links):
     return rx, tx
 
 
-def _cpu_color(pct):
-    if pct is None:
-        return ''
-    if pct < 25:
-        return 'success'
-    if pct < 80:
-        return 'warning'
-    return 'danger'
-
-
-def empty_live_metrics():
-    '''Placeholder CPU/net fields for stopped or broken rows.'''
-
-    return {
-        'cpu_pct': None,
-        'cpu_label': '',
-        'cpu_color': '',
-        'cpu_title': '',
-        'net_rx_label': '',
-        'net_tx_label': '',
-        'net_title': '',
-    }
-
-
 def forget_live_sample(name):
     '''Drop the last CPU/net sample (CT stopped or restarted).'''
 
@@ -372,7 +349,7 @@ def container_live_metrics(name, links=None):
             out['cpu_pct'] = pct
             out['cpu_label'] = '%s%% (%s%%)' % (
                 format_qty(pct, 1), format_qty(host_pct, 1))
-            out['cpu_color'] = _cpu_color(pct)
+            out['cpu_color'] = cpu_color(pct)
             out['cpu_title'] = (
                 'Since last refresh. 100%% = one full core; '
                 '%s host CPUs = %s%%. '

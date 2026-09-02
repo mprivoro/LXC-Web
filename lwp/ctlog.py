@@ -160,7 +160,28 @@ def is_readonly(cmd):
         return True
     if binary == 'lxc-snapshot' and '-L' in parts:
         return True
-    if binary == 'du':
+    if binary == 'virsh':
+        sub = ''
+        for i, part in enumerate(parts):
+            if part == '-c' and i + 1 < len(parts):
+                continue
+            if i and parts[i - 1] == '-c':
+                continue
+            if part.startswith('-'):
+                continue
+            if part != 'virsh' and os.path.basename(part) != 'virsh':
+                sub = part
+                break
+        if sub in (
+            'list', 'dominfo', 'domstate', 'dumpxml', 'domuuid',
+            'domiflist', 'domifaddr', 'domblklist', 'domblkinfo',
+            'snapshot-list', 'snapshot-dumpxml', 'cpu-stats',
+            'domifstat', 'dommemstat', 'version', 'capabilities',
+            'nodecpustats', 'cpu-models', 'net-list', 'net-dumpxml',
+            'net-info', 'pool-dumpxml',
+        ):
+            return True
+    if binary in ('du', 'virt-host-validate'):
         return True
     if parts[0].startswith('/sbin/shutdown') or binary == 'shutdown':
         return True

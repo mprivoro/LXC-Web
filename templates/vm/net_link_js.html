@@ -1,0 +1,45 @@
+{# Fill Network/Bridge <select>; hide it when there is nothing to pick. #}
+		function vmNetNames(raw){
+			raw = $.trim(raw || '');
+			if (!raw) return [];
+			return raw.split(',');
+		}
+		function syncVmNetLink(typeSel, linkSel, labelSel, ipWrap){
+			var kind = $(typeSel).val();
+			var $link = $(linkSel);
+			var $group = $link.closest('.control-group');
+			var items = kind === 'bridge' ? vmNetNames($link.attr('data-bridges')) : vmNetNames($link.attr('data-networks'));
+			var cur = $link.val() || $link.attr('data-current') || '';
+			if ($.inArray(cur, items) < 0) cur = items.length ? items[0] : '';
+			$link.empty();
+			if (items.length < 2) {
+				$link.prop('disabled', true);
+				$group.addClass('hide');
+				$group.find('input[type=hidden][name=link]').remove();
+				if (items.length === 1) {
+					$group.append($('<input type="hidden" name="link">').val(items[0]));
+					cur = items[0];
+				}
+			} else {
+				$link.prop('disabled', false);
+				$group.removeClass('hide');
+				$group.find('input[type=hidden][name=link]').remove();
+				$.each(items, function(_, name){
+					$link.append($('<option></option>').val(name).text(name));
+				});
+				$link.val(cur);
+			}
+			$(labelSel).text(kind === 'bridge' ? 'Bridge' : 'Network');
+			if (ipWrap) {
+				var dhcp = vmNetNames($link.attr('data-dhcp'));
+				var showIp = kind === 'network' && cur && $.inArray(cur, dhcp) >= 0;
+				var $ip = $(ipWrap);
+				if (showIp) {
+					$ip.removeClass('hide').css('display', '');
+					$ip.find('input').prop('disabled', false);
+				} else {
+					$ip.addClass('hide').css('display', 'none');
+					$ip.find('input').prop('disabled', true);
+				}
+			}
+		}

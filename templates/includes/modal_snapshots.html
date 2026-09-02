@@ -36,7 +36,7 @@
 </div>
 
 <div id="snapshotTake" class="modal hide fade" tabindex="-1" role="dialog" aria-labelledby="snapshotTakeLabel" aria-hidden="true">
-	<form method="post" action="{{ url_for('take_snapshot') }}" style="margin:0;" novalidate>
+	<form method="post" action="{{ url_for(ep_snap) }}" style="margin:0;" novalidate>
 		<div class="modal-header">
 			<button type="button" class="close" data-dismiss="modal" aria-hidden="true">×</button>
 			<h3 id="snapshotTakeLabel">Take snapshot</h3>

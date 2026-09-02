@@ -18,6 +18,7 @@ from ptyprocess import PtyProcess
 from simple_websocket import ConnectionClosed
 
 _NAME = re.compile(r'^[A-Za-z0-9_-]+$')
+_NAME_VM = re.compile(r'^[A-Za-z0-9][A-Za-z0-9._-]*$')
 _RESIZE_PREFIX = '\x1fR'
 
 # Live host-side lxc-attach processes. One per container: a new console
@@ -27,18 +28,27 @@ _sessions_lock = threading.Lock()
 _signals_installed = False
 
 
-def register_console(sock, lxc_mod):
-    '''Attach /console/<name> to the Flask-Sock instance.'''
+def register_console(sock, engine, argv_for=None, path='/console/<name>',
+                     name_re=None, session_prefix=''):
+    '''Attach a WebSocket console route (LXC attach or virsh console).'''
 
     if sock is None:
         return
     _install_cleanup_hooks()
+    pat = name_re or (_NAME_VM if path.startswith('/virsh') else _NAME)
 
-    @sock.route('/console/<name>')
-    def lxc_console(ws, name):
-        '''WebSocket handler: PTY to lxc-attach for this container.'''
+    def argv(n):
+        if argv_for:
+            return argv_for(n)
+        return ['lxc-attach', '-n', n]
 
-        _run_console(ws, name, lxc_mod)
+    def handler(ws, name):
+        _run_console(ws, name, engine, argv, name_pat=pat,
+                     session_key=session_prefix + (name or ''))
+
+    handler.__name__ = 'ws_' + path.strip('/').replace('/', '_').replace(
+        '<', '').replace('>', '')
+    sock.route(path, endpoint=handler.__name__)(handler)
 
 
 def _install_cleanup_hooks():
@@ -132,49 +142,51 @@ def _forget(name, proc):
             _sessions.pop(name, None)
 
 
-def _run_console(ws, name, lxc_mod):
-    '''su-only: spawn lxc-attach, copy PTY bytes to the socket and back.'''
+def _run_console(ws, name, engine, argv_for, name_pat=None, session_key=None):
+    '''su-only: spawn attach/console, copy PTY bytes to the socket and back.'''
 
+    name_pat = name_pat or _NAME
+    session_key = session_key or (name or '')
     if 'logged_in' not in session or session.get('su') != 'Yes':
         _close_with(ws, 'Not allowed.')
         return
-    if not _NAME.match(name or ''):
-        _close_with(ws, 'Invalid container name.')
+    if not name_pat.match(name or ''):
+        _close_with(ws, 'Invalid name.')
         return
     try:
-        if not lxc_mod.exists(name):
-            _close_with(ws, 'Container does not exist.')
+        if not engine.exists(name):
+            _close_with(ws, 'Does not exist.')
             return
-        state = lxc_mod.info(name).get('state', '')
+        state = engine.info(name).get('state', '')
     except Exception as e:
-        _close_with(ws, 'Cannot inspect container: %s' % e)
+        _close_with(ws, 'Cannot inspect: %s' % e)
         return
     if state != 'RUNNING':
-        _close_with(ws, 'Container is not running (%s).' % (state or 'unknown'))
+        _close_with(ws, 'Not running (%s).' % (state or 'unknown'))
         return
 
     try:
         proc = PtyProcess.spawn(
-            ['lxc-attach', '-n', name],
+            argv_for(name),
             dimensions=(24, 80),
         )
     except Exception as e:
         try:
             from lwp.ctlog import log_cmd
-            log_cmd(['lxc-attach', '-n', name], 1, str(e))
+            log_cmd(argv_for(name), 1, str(e))
         except Exception:
             pass
-        _close_with(ws, 'lxc-attach failed: %s' % e)
+        _close_with(ws, 'console failed: %s' % e)
         return
 
     try:
         from lwp.ctlog import log_cmd
-        log_cmd(['lxc-attach', '-n', name], 0,
+        log_cmd(argv_for(name), 0,
                 'started pid=%s' % getattr(proc, 'pid', '?'))
     except Exception:
         pass
 
-    _remember(name, proc)
+    _remember(session_key, proc)
     outgoing = queue.Queue()
     stop = threading.Event()
 
@@ -238,12 +250,12 @@ def _run_console(ws, name, lxc_mod):
         return
     finally:
         stop.set()
-        _forget(name, proc)
+        _forget(session_key, proc)
         pid = getattr(proc, 'pid', '?')
         _kill_proc(proc)
         try:
             from lwp.ctlog import log_cmd
-            log_cmd(['lxc-attach', '-n', name], 0, 'closed pid=%s' % pid)
+            log_cmd(argv_for(name), 0, 'closed pid=%s' % pid)
         except Exception:
             pass
 

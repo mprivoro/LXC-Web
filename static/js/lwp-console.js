@@ -203,7 +203,8 @@
 		try { fitAddon.fit(); } catch (e) {}
 
 		var proto = (location.protocol === 'https:') ? 'wss://' : 'ws://';
-		var url = proto + location.host + $SCRIPT_ROOT + '/console/' + encodeURIComponent(name);
+		var prefix = ($('#consoleTerm').attr('data-ws-prefix') || '/console');
+		var url = proto + location.host + $SCRIPT_ROOT + prefix + '/' + encodeURIComponent(name);
 		socket = new WebSocket(url);
 		socket.onmessage = function (ev) {
 			if (term) {

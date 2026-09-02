@@ -3,7 +3,7 @@
 <html lang="en">
 	<head>
 		<meta charset="utf-8">
-		<title>{% block title %}{% endblock %} - LXC-Web</title>
+		<title>{% block title %}{% endblock %} - {{ panel_brand }}</title>
 		<meta name="viewport" content="width=device-width, initial-scale=1.0">
 		<meta name="author" content="Michael Privorotsky">
 		<link href="{{ url_for('static', filename='css/bootstrapSwitch.css') }}" rel="stylesheet">
@@ -38,7 +38,7 @@
 
 		{% if session.logged_in %}
 				<footer id="footer">
-					<p class="muted credit"><small>LXC-Web — <a href="{{ url_for('about') }}" class="muted">MIT License</a></small></p>
+					<p class="muted credit"><small>{{ panel_brand }} — <a href="{{ url_for('about') }}" class="muted">MIT License</a></small></p>
 				</footer>
 			</div>
 		{% endif %}
@@ -104,8 +104,8 @@
 		<script>
 				$(function() {
 						$(".alert").not('.dont-hide, .modal .alert').alert().delay(5000).slideUp();
-						$("#home-btn").on('click',function(){
-								$('#home-load').fadeIn();
+						$(".home-btn").on('click',function(){
+								$(this).find('#home-load').fadeIn();
 						});
 						$("input").not("[type=submit]").not(".ct-pick, .bulk-all").jqBootstrapValidation();
 						$('.lwp-menu').on('click', function () {

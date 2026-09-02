@@ -1,8 +1,7 @@
-# MCP server for LXC-Web: list/inspect CTs, read/write config, start/stop/…
-# Classic LXC only (lxc-*), not LXD/Incus.
-#
+# MCP runtime for LXC-Web: auth, HTTP/stdio, host_info.
+# LXC tools: lwp.mcp_lxc. VM tools: lwp.mcp_vm.
 # Started in a background thread by python3 lwp.py (Streamable HTTP).
-# Standalone: python3 -m lwp.mcp_server [--stdio] [--host …] [--port …]
+# Standalone: python3 -m lwp.mcp_server [--stdio] [--url …]
 # Needs the `mcp` package (Python 3.10+). The panel runs without it.
 
 from __future__ import annotations
@@ -13,7 +12,6 @@ import functools
 import json
 import logging
 import os
-import re
 import secrets
 import sqlite3
 import sys
@@ -24,9 +22,6 @@ from urllib.parse import urlparse
 import lxclite as lxc
 import lwp
 import lwp.ctlog as ctlog
-from lwp.util import (
-    RE_CPUS, RE_CT_NAME, RE_FLAGS, RE_HOSTNAME, RE_HWADDR, RE_IFACE,
-    RE_ROOTFS, RE_SHARES, matches)
 
 from mcp.server import MCPServer
 from mcp.types import ToolAnnotations
@@ -40,31 +35,12 @@ _RW = ToolAnnotations(read_only_hint=False, destructive_hint=False,
 _DEST = ToolAnnotations(read_only_hint=False, destructive_hint=True,
                         open_world_hint=False)
 
-_LXC_KEY = re.compile(r'^lxc\.[a-zA-Z0-9._-]+$')
 _READY = False
 _OVERVIEW_PARTITION = '/'
 _DATABASE = ''
 _MCP_CONFIG_KEY = ''
 _identity = contextvars.ContextVar('lwp_mcp_identity', default=None)
 DEFAULT_MCP_URL = 'http://127.0.0.1:5001/mcp'
-
-# Friendly field -> first LXC key that push_config_value understands.
-_FIELDS = {
-    'type': 'lxc.network.type',
-    'link': 'lxc.network.link',
-    'flags': 'lxc.network.flags',
-    'hwaddr': 'lxc.network.hwaddr',
-    'rootfs': 'lxc.rootfs',
-    'hostname': 'lxc.utsname',
-    'utsname': 'lxc.utsname',
-    'arch': 'lxc.arch',
-    'ipv4': 'lxc.network.ipv4',
-    'ipv6': 'lxc.network.ipv6',
-    'memlimit': 'lxc.cgroup.memory.limit_in_bytes',
-    'swlimit': 'lxc.cgroup.memory.memsw.limit_in_bytes',
-    'cpus': 'lxc.cgroup.cpuset.cpus',
-    'shares': 'lxc.cgroup.cpu.shares',
-}
 
 
 def _panel_version():
@@ -80,12 +56,14 @@ def _panel_version():
 mcp = MCPServer(
     'LXC-Web',
     instructions=(
-        'Classic LXC (lxc-* tools) on this host, not LXD or Incus. '
-        'Use list_containers then container_info. '
+        'This host has classic LXC containers (lxc-*) and KVM/QEMU VMs '
+        '(virsh / libvirt). Not LXD or Incus. '
+        'Containers: list_containers, container_info. '
+        'VMs: list_vms, vm_info. '
         'CPU % is of one core (100% = one full core); the figure in '
         'parentheses is the share of all host CPUs. '
-        'Destroy requires confirm_name equal to the container name. '
-        'Live snapshot of a running CT needs allow_running=true.'
+        'Destroy/undefine requires confirm_name equal to the name. '
+        'Live snapshot of a running CT/VM needs allow_running=true.'
     ),
     version=_panel_version(),
     log_level='WARNING',
@@ -176,6 +154,20 @@ def ensure_runtime():
         store = '/var/lib/lxc'
     lxc.init_lxc_conf(conf, store)
     try:
+        uri = cfg.get('vm', 'uri').strip()
+    except (configparser.NoSectionError, configparser.NoOptionError):
+        uri = 'qemu:///system'
+    try:
+        import libvirtlite as virt
+        virt.init_uri(uri or 'qemu:///system')
+        try:
+            disk = cfg.get('vm', 'disk').strip()
+        except (configparser.NoSectionError, configparser.NoOptionError):
+            disk = ''
+        virt.init_disk_dir(disk)
+    except Exception:
+        log.exception('Could not init libvirt URI')
+    try:
         images = cfg.get('lxc', 'images').strip()
     except (configparser.NoSectionError, configparser.NoOptionError):
         images = '/var/cache/lxc/download'
@@ -203,23 +195,21 @@ def ensure_runtime():
     _READY = True
 
 
-def _name(name):
-    if not matches(RE_CT_NAME, name) or name == 'containers':
-        raise ValueError('Invalid container name.')
-    return name
-
-
-def _need(name):
-    name = _name(name)
-    if not lxc.exists(name):
-        raise lxc.ContainerDoesntExists(
-            'Container %s does not exist.' % name)
-    return name
-
-
 def _fail(exc):
+    '''Best-effort error dict from LXC or virsh CLI exceptions.'''
+
     out = getattr(exc, 'output', None)
-    msg = lxc.lxc_error_message(out) if out else str(exc)
+    msg = str(exc)
+    if out:
+        module = getattr(type(exc), '__module__', '') or ''
+        try:
+            if module.startswith('libvirtlite'):
+                import libvirtlite as virt
+                msg = virt.virsh_error_message(out) or msg
+            else:
+                msg = lxc.lxc_error_message(out) or msg
+        except Exception:
+            pass
     return {'ok': False, 'error': msg or exc.__class__.__name__}
 
 
@@ -365,7 +355,7 @@ def _need_write():
         return None
     return {
         'ok': False,
-        'error': 'Read-only MCP token. Use an admin user token to change containers.',
+        'error': 'Read-only MCP token. Use an admin user token to change containers or VMs.',
     }
 
 
@@ -379,131 +369,6 @@ def _write_guard(fn):
     return wrapped
 
 
-def _settings_public(cfg):
-    skip = {'config_error'}
-    return {k: v for k, v in cfg.items() if k not in skip}
-
-
-def _snapshot_public(item):
-    return {
-        'name': item.get('name', ''),
-        'created': item.get('created', ''),
-        'comment': item.get('comment', ''),
-        'size_mb': item.get('size_mb') or 0,
-        'path': item.get('path', ''),
-    }
-
-
-def _container_brief(name, state):
-    row = {'name': name, 'state': state}
-    try:
-        cfg = lwp.get_container_settings(name)
-    except Exception:
-        cfg = lwp.empty_container_settings()
-    row['hostname'] = cfg.get('utsname') or ''
-    row['ipv4'] = cfg.get('ipv4_addrs') or []
-    row['ipv6'] = cfg.get('ipv6_addrs') or []
-    if state == 'RUNNING':
-        try:
-            addrs = lxc.ip_addresses(name, True)
-            if addrs.get('ipv4') or addrs.get('ipv6'):
-                row['ipv4'] = addrs.get('ipv4') or []
-                row['ipv6'] = addrs.get('ipv6') or []
-        except Exception:
-            pass
-    err = cfg.get('config_error') or ''
-    if err:
-        row['config_error'] = err
-    return row
-
-
-@mcp.tool(annotations=_RO)
-def list_containers() -> dict:
-    '''List all classic LXC containers grouped by state.'''
-
-    ensure_runtime()
-    try:
-        grouped = lxc.listx()
-    except Exception as e:
-        return _fail(e)
-    containers = []
-    for state in ('RUNNING', 'FROZEN', 'STOPPED', 'BROKEN'):
-        for name in grouped.get(state, []):
-            try:
-                containers.append(_container_brief(name, state))
-            except Exception as e:
-                containers.append({
-                    'name': name, 'state': state, 'error': str(e)})
-    return _ok(
-        lxcpath=lxc.lxcpath(),
-        counts={k.lower(): len(grouped.get(k, []))
-                for k in ('RUNNING', 'FROZEN', 'STOPPED', 'BROKEN')},
-        containers=containers)
-
-
-@mcp.tool(annotations=_RO)
-def container_info(name: str) -> dict:
-    '''State, IPs, RAM, disk, CPU/net sample, settings, and snapshots.'''
-
-    ensure_runtime()
-    try:
-        name = _need(name)
-        inf = lxc.info(name)
-        settings = lwp.get_container_settings(name)
-        state = inf.get('state', '')
-        live = lwp.empty_live_metrics()
-        mem = disk = 0
-        snaps = []
-        addrs = {'ipv4': [], 'ipv6': []}
-        if state != 'BROKEN':
-            try:
-                mem = lwp.memory_usage(
-                    name, known_live=(state in ('RUNNING', 'FROZEN')))
-            except Exception:
-                mem = 0
-            try:
-                disk = lwp.container_disk_usage(name)
-            except Exception:
-                disk = 0
-            try:
-                snaps = [_snapshot_public(s) for s in lxc.snapshots(name)]
-            except Exception:
-                snaps = []
-            if state in ('RUNNING', 'FROZEN'):
-                try:
-                    live = lwp.container_live_metrics(
-                        name, inf.get('links') or [])
-                except Exception:
-                    live = lwp.empty_live_metrics()
-                try:
-                    addrs = lxc.ip_addresses(name, True)
-                except Exception:
-                    pass
-        live_out = {
-            'cpu': live.get('cpu_label') or None,
-            'cpu_title': live.get('cpu_title') or '',
-            'net_rx': live.get('net_rx_label') or None,
-            'net_tx': live.get('net_tx_label') or None,
-            'net_title': live.get('net_title') or '',
-        }
-        return _ok(
-            name=name,
-            state=state,
-            pid=inf.get('pid') or '0',
-            error=inf.get('error') or settings.get('config_error') or '',
-            links=inf.get('links') or [],
-            ipv4=addrs.get('ipv4') or settings.get('ipv4_addrs') or [],
-            ipv6=addrs.get('ipv6') or settings.get('ipv6_addrs') or [],
-            memory_mb=mem,
-            disk_mb=disk,
-            live=live_out,
-            settings=_settings_public(settings),
-            snapshots=snaps,
-        )
-    except Exception as e:
-        return _fail(e)
-
-
 @mcp.tool(annotations=_RO)
 def host_info() -> dict:
     '''Host CPU, load, RAM, disk of the overview partition, uptime, LXC paths.'''
@@ -514,12 +379,19 @@ def host_info() -> dict:
         mem = lwp.host_memory_usage()
         disk = lwp.host_disk_usage(partition=_OVERVIEW_PARTITION)
         up = lwp.host_uptime()
+        uri = ''
+        try:
+            import libvirtlite as virt
+            uri = virt.connect_uri()
+        except Exception:
+            uri = ''
         return _ok(
             dist=lwp.check_ubuntu(),
             version=lwp.check_version(),
             lxc_conf=lxc.lxc_conf_path(),
             lxcpath=lxc.lxcpath(),
             images=lwp.images_download_dir(),
+            libvirt_uri=uri,
             cpu=cpu,
             memory=mem,
             disk=disk,
@@ -528,382 +400,6 @@ def host_info() -> dict:
         )
     except Exception as e:
         return _fail(e)
-
-
-@mcp.tool(annotations=_RO)
-def read_config(name: str) -> dict:
-    '''Raw LXC config file text for a container.'''
-
-    ensure_runtime()
-    try:
-        name = _need(name)
-        text, err = lwp.read_container_config(name)
-        if text is None:
-            return {'ok': False, 'error': err or 'unreadable', 'name': name}
-        return _ok(name=name, path=lwp.container_config_path(name), text=text)
-    except Exception as e:
-        return _fail(e)
-
-
-@mcp.tool(annotations=_DEST)
-@_write_guard
-def write_config(name: str, text: str) -> dict:
-    '''Replace the container config (keeps config.bak). Does not restart the CT.'''
-
-    ensure_runtime()
-    try:
-        name = _need(name)
-        ok, err = lwp.write_container_config(name, text)
-        if not ok:
-            return {'ok': False, 'error': err, 'name': name}
-        return _ok(name=name, path=lwp.container_config_path(name))
-    except Exception as e:
-        return _fail(e)
-
-
-@mcp.tool(annotations=_RW)
-@_write_guard
-def restore_config_backup(name: str) -> dict:
-    '''Restore config from config.bak.'''
-
-    ensure_runtime()
-    try:
-        name = _need(name)
-        ok, err = lwp.restore_container_config_backup(name)
-        if not ok:
-            return {'ok': False, 'error': err, 'name': name}
-        return _ok(name=name)
-    except Exception as e:
-        return _fail(e)
-
-
-def _set_autostart(name, enabled):
-    lwp.push_config_value('lxc.start.auto', '1' if enabled else '0',
-                          container=name)
-    link = '/etc/lxc/auto/%s.conf' % name
-    target = os.path.join(lxc.lxcpath(), name, 'config')
-    if enabled:
-        try:
-            os.makedirs('/etc/lxc/auto', exist_ok=True)
-            if not os.path.islink(link) and not os.path.exists(link):
-                os.symlink(target, link)
-        except OSError as e:
-            return 'Wrote lxc.start.auto=1; auto symlink failed: %s' % e
-    else:
-        try:
-            if os.path.islink(link) or os.path.isfile(link):
-                os.remove(link)
-        except OSError as e:
-            return 'Wrote lxc.start.auto=0; removing auto symlink failed: %s' % e
-    return ''
-
-
-def _validate_field(field, value):
-    if field in ('hostname', 'utsname'):
-        if value and not matches(RE_HOSTNAME, value):
-            return 'Invalid hostname.'
-    elif field == 'flags':
-        if value and not matches(RE_FLAGS, value):
-            return 'flags must be up or down.'
-    elif field == 'hwaddr':
-        if value and not matches(RE_HWADDR, value):
-            return 'Invalid MAC address.'
-    elif field == 'link':
-        if value and not matches(RE_IFACE, value):
-            return 'Invalid interface / bridge name.'
-    elif field == 'cpus':
-        if value and not matches(RE_CPUS, value):
-            return 'Invalid cpuset.'
-    elif field == 'shares':
-        if value and not matches(RE_SHARES, value):
-            return 'CPU shares must be a number.'
-    elif field == 'rootfs':
-        if value and not matches(RE_ROOTFS, value):
-            return 'Invalid rootfs path.'
-    elif field in ('memlimit', 'swlimit'):
-        if value and not re.match(r'^[0-9]+$', value):
-            return 'Memory limit must be an integer (MB).'
-    if value and ('\n' in value or '\r' in value or '\0' in value):
-        return 'Value must be a single line.'
-    return ''
-
-
-@mcp.tool(annotations=_RW)
-@_write_guard
-def set_config(name: str, field: str, value: str) -> dict:
-    '''
-    Set one config field. field is a friendly name (hostname, ipv4, memlimit,
-    cpus, shares, flags, link, hwaddr, autostart, …) or a raw lxc.* key.
-    Empty value unsets the key. Does not restart the CT.
-    '''
-
-    ensure_runtime()
-    try:
-        name = _need(name)
-        field = (field or '').strip()
-        value = '' if value is None else str(value).strip()
-        if field in ('autostart', 'auto', 'lxc.start.auto'):
-            on = value.lower() in ('1', 'true', 'yes', 'on')
-            note = _set_autostart(name, on)
-            return _ok(name=name, field='autostart', value=on, warning=note or None)
-        if field in _FIELDS:
-            err = _validate_field(field, value)
-            if err:
-                return {'ok': False, 'error': err}
-            key = _FIELDS[field]
-        elif _LXC_KEY.match(field):
-            key = field
-        else:
-            return {
-                'ok': False,
-                'error': 'Unknown field. Use hostname, ipv4, memlimit, '
-                         'cpus, shares, flags, link, hwaddr, autostart, '
-                         'or a raw lxc.* key.',
-                'fields': sorted(set(_FIELDS) | {'autostart'}),
-            }
-        lwp.push_config_value(key, value, container=name)
-        return _ok(name=name, field=field, key=key, value=value)
-    except Exception as e:
-        return _fail(e)
-
-
-def _act(name, fn, extra=None):
-    ensure_runtime()
-    try:
-        name = _need(name)
-        fn(name)
-        inf = lxc.info(name)
-        out = _ok(name=name, state=inf.get('state'))
-        if extra:
-            out.update(extra)
-        return out
-    except Exception as e:
-        return _fail(e)
-
-
-@mcp.tool(annotations=_RW)
-@_write_guard
-def start_container(name: str) -> dict:
-    '''Start a stopped CT, or unfreeze a frozen one.'''
-
-    ensure_runtime()
-    try:
-        name = _need(name)
-        state = lxc.info(name).get('state')
-        if state == 'FROZEN':
-            lxc.unfreeze(name)
-        elif state != 'RUNNING':
-            lxc.start(name)
-        return _ok(name=name, state=lxc.info(name).get('state'))
-    except Exception as e:
-        return _fail(e)
-
-
-@mcp.tool(annotations=_RW)
-@_write_guard
-def stop_container(name: str) -> dict:
-    '''Stop a running or frozen container (lxc-stop).'''
-
-    return _act(name, lxc.stop)
-
-
-@mcp.tool(annotations=_RW)
-@_write_guard
-def restart_container(name: str) -> dict:
-    '''Stop then start. No-op start if it is already stopped (just starts).'''
-
-    ensure_runtime()
-    try:
-        name = _need(name)
-        state = lxc.info(name).get('state')
-        if state in ('RUNNING', 'FROZEN'):
-            lxc.stop(name)
-        lxc.start(name)
-        return _ok(name=name, state=lxc.info(name).get('state'))
-    except Exception as e:
-        return _fail(e)
-
-
-@mcp.tool(annotations=_RW)
-@_write_guard
-def freeze_container(name: str) -> dict:
-    '''Pause a running container (lxc-freeze).'''
-
-    return _act(name, lxc.freeze)
-
-
-@mcp.tool(annotations=_RW)
-@_write_guard
-def unfreeze_container(name: str) -> dict:
-    '''Resume a frozen container (lxc-unfreeze).'''
-
-    return _act(name, lxc.unfreeze)
-
-
-@mcp.tool(annotations=_RO)
-def list_snapshots(name: str) -> dict:
-    '''Snapshots of a container, with size and comment.'''
-
-    ensure_runtime()
-    try:
-        name = _need(name)
-        plan = lxc.snapshot_plan(name)
-        snaps = [_snapshot_public(s) for s in lxc.snapshots(name)]
-        return _ok(name=name, snapshots=snaps, plan=plan)
-    except Exception as e:
-        return _fail(e)
-
-
-@mcp.tool(annotations=_RW)
-@_write_guard
-def create_snapshot(name: str, comment: str = '',
-                    allow_running: bool = False) -> dict:
-    '''
-    Create a snapshot. Stopped CTs: consistent. Running: only if
-    allow_running is true (live copy).
-    '''
-
-    ensure_runtime()
-    try:
-        name = _need(name)
-        snap = lxc.snapshot_create(
-            name, comment or None, allow_running=allow_running)
-        return _ok(name=name, snapshot=snap)
-    except Exception as e:
-        return _fail(e)
-
-
-@mcp.tool(annotations=_DEST)
-@_write_guard
-def restore_snapshot(name: str, snapshot: str, new_name: str = '') -> dict:
-    '''
-    Restore a snapshot. Empty new_name restores in place (CT must be stopped).
-    Otherwise creates a new container from the snapshot.
-    '''
-
-    ensure_runtime()
-    try:
-        name = _need(name)
-        dest = new_name.strip() or None
-        if dest:
-            dest = _name(dest)
-        lxc.snapshot_restore(name, snapshot, dest)
-        return _ok(name=name, snapshot=snapshot, restored_as=dest or name)
-    except Exception as e:
-        return _fail(e)
-
-
-@mcp.tool(annotations=_DEST)
-@_write_guard
-def destroy_snapshot(name: str, snapshot: str) -> dict:
-    '''Delete one snapshot of a container.'''
-
-    ensure_runtime()
-    try:
-        name = _need(name)
-        lxc.snapshot_destroy(name, snapshot)
-        return _ok(name=name, snapshot=snapshot)
-    except Exception as e:
-        return _fail(e)
-
-
-@mcp.tool(annotations=_RW)
-@_write_guard
-def clone_container(name: str, new_name: str, snapshot: bool = False) -> dict:
-    '''Clone a container to new_name. snapshot=true uses lxc-clone -s.'''
-
-    ensure_runtime()
-    try:
-        name = _need(name)
-        new_name = _name(new_name)
-        lxc.clone(orig=name, new=new_name, snapshot=snapshot)
-        return _ok(name=new_name, cloned_from=name, snapshot=snapshot)
-    except Exception as e:
-        return _fail(e)
-
-
-@mcp.tool(annotations=_RW)
-@_write_guard
-def create_container(name: str, source: str) -> dict:
-    '''
-    Create a CT from a cached image or template.
-    source is image:<dist>:<release>:<arch>:<variant> (from list_images)
-    or template:<name>.
-    '''
-
-    ensure_runtime()
-    try:
-        name = _name(name)
-        template, xargs = lwp.parse_create_source(source)
-        if not template:
-            return {
-                'ok': False,
-                'error': 'Unknown source. Use image:id from list_images '
-                         'or template:<name>.',
-            }
-        lxc.create(name, template=template, xargs=xargs, env=lwp.create_env())
-        return _ok(name=name, source=source, template=template)
-    except Exception as e:
-        return _fail(e)
-
-
-@mcp.tool(annotations=_DEST)
-@_write_guard
-def destroy_container(name: str, confirm_name: str) -> dict:
-    '''Destroy a container. confirm_name must be exactly the same as name.'''
-
-    ensure_runtime()
-    try:
-        name = _need(name)
-        if confirm_name != name:
-            return {
-                'ok': False,
-                'error': 'confirm_name must match name exactly.',
-            }
-        lxc.destroy(name)
-        lwp.forget_live_sample(name)
-        return _ok(name=name, destroyed=True)
-    except Exception as e:
-        return _fail(e)
-
-
-@mcp.tool(annotations=_RO)
-def list_images() -> dict:
-    '''Cached lxc-download images and host templates for create_container.'''
-
-    ensure_runtime()
-    try:
-        return _ok(
-            images=lwp.get_cached_images(),
-            images_dir=lwp.images_download_dir(),
-            templates=lwp.get_templates_list(),
-        )
-    except Exception as e:
-        return _fail(e)
-
-
-@mcp.resource('lxc://containers', mime_type='application/json')
-def resource_containers() -> str:
-    '''JSON list of containers by state.'''
-
-    return json.dumps(list_containers(), indent=2)
-
-
-@mcp.resource('lxc://containers/{name}', mime_type='application/json')
-def resource_container(name: str) -> str:
-    '''JSON details for one container.'''
-
-    return json.dumps(container_info(name), indent=2)
-
-
-@mcp.resource('lxc://containers/{name}/config', mime_type='text/plain')
-def resource_container_config(name: str) -> str:
-    '''Raw config file.'''
-
-    data = read_config(name)
-    if not data.get('ok'):
-        return data.get('error') or 'error'
-    return data.get('text') or ''
 
 
 def _header_token(headers):
@@ -924,13 +420,14 @@ def _header_token(headers):
     return (auth or bearer or api_key).strip()
 
 
-def _install_mcp_logging():
-    '''Log every tools/call and resource read (once).'''
+def _install_mcp_logging(server=None):
+    '''Log every tools/call and resource read (once per server).'''
 
-    if getattr(mcp, '_lwp_logged', False):
+    target = server or mcp
+    if getattr(target, '_lwp_logged', False):
         return
-    orig_call = mcp.call_tool
-    orig_read = mcp.read_resource
+    orig_call = target.call_tool
+    orig_read = target.read_resource
 
     async def logged_call_tool(name, arguments, context=None, **kwargs):
         ident = _identity.get()
@@ -982,9 +479,9 @@ def _install_mcp_logging():
             )
             ctlog.reset_actor(actor_tok)
 
-    mcp.call_tool = logged_call_tool
-    mcp.read_resource = logged_read_resource
-    mcp._lwp_logged = True
+    target.call_tool = logged_call_tool
+    target.read_resource = logged_read_resource
+    target._lwp_logged = True
 
 
 _install_mcp_logging()
@@ -1042,15 +539,16 @@ class _ApiKeyASGI:
             _identity.reset(id_tok)
 
 
-def serve_http(url, threaded=False):
+def serve_http(url, threaded=False, server=None):
     '''Block serving Streamable HTTP with token auth.'''
 
     spec = parse_mcp_url(url)
     import anyio
     import uvicorn
 
+    target = server or mcp
     app = _ApiKeyASGI(
-        mcp.streamable_http_app(
+        target.streamable_http_app(
             streamable_http_path=spec['path'],
             stateless_http=True,
             host=spec['host'],
@@ -1069,17 +567,17 @@ def serve_http(url, threaded=False):
     anyio.run(server.serve)
 
 
-def start_background(url):
+def start_background(url, server=None, prepare=None, thread_name='lwp-mcp'):
     '''Daemon thread: Streamable HTTP MCP next to the Flask app.'''
 
     def _run():
         try:
-            ensure_runtime()
-            serve_http(url, threaded=True)
+            (prepare or ensure_runtime)()
+            serve_http(url, threaded=True, server=server)
         except Exception:
             log.exception('MCP server failed')
 
-    thread = threading.Thread(target=_run, daemon=True, name='lwp-mcp')
+    thread = threading.Thread(target=_run, daemon=True, name=thread_name)
     thread.start()
     return thread
 
@@ -1110,6 +608,16 @@ def main(argv=None):
     spec = parse_mcp_url(args.url) if args.url else mcp_listen_spec(cfg)
     print('MCP %s' % spec['url'], file=sys.stderr)
     serve_http(spec['url'])
+
+
+try:
+    import lwp.mcp_lxc  # LXC tools on the same MCP server
+except Exception:
+    log.exception('LXC MCP tools not loaded')
+try:
+    import lwp.mcp_vm  # VM tools on the same MCP server
+except Exception:
+    log.exception('VM MCP tools not loaded')
 
 
 if __name__ == '__main__':

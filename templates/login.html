@@ -5,8 +5,8 @@
 <div class="span4 offset4">
   {{ super() }}
   <form action="{{ url_for('login') }}" method="POST" class="form-signin">
-    <h1>LXC-Web</h1>
-    <p class="muted">Sign in to manage LXC containers</p>
+    <h1>{{ panel_brand }}</h1>
+    <p class="muted">{{ panel_tagline }}</p>
     <div class="control-group">
       <label class="control-label" for="inputUsername">Username</label>
       <div class="controls">

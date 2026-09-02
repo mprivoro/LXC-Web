@@ -1,21 +1,33 @@
-{# Left nav: Overview, CTs, su links (users, net, log, checkconfig). #}
+{# Left nav: two Overviews (LXC + virsh), CTs, VMs, su links. #}
 <aside class="lwp-sidebar">
-	<a class="lwp-brand" href="{{ url_for('home') }}">LXC-Web</a>
+		<a class="lwp-brand" href="{{ url_for('home') }}">{{ panel_brand }}</a>
 	<nav class="sidebar-nav">
 		<ul class="nav nav-list">
 			<li class="nav-header">General</li>
-			<li{% if request.path=="/" or request.path=="/home" %} class="active"{% endif %}><a href="{{ url_for('home') }}" id="home-btn"><i class="icon-home"></i> Overview<i class="icon-refresh hide" id="home-load"></i></a></li>
+			<li{% if request.path=="/" or request.path=="/home" %} class="active"{% endif %}><a href="{{ url_for('home') }}" class="home-btn"{% if not is_vm_panel %} id="home-btn"{% endif %}><i class="icon-home"></i> Overview LXC{% if not is_vm_panel %}<i class="icon-refresh hide" id="home-load"></i>{% endif %}</a></li>
+			<li{% if request.path=="/virsh" or request.path=="/virsh/" %} class="active"{% endif %}><a href="{{ url_for('vm_home') }}" class="home-btn"{% if is_vm_panel %} id="home-btn"{% endif %}><i class="icon-home"></i> Overview VMs{% if is_vm_panel %}<i class="icon-refresh hide" id="home-load"></i>{% endif %}</a></li>
 		</ul>
-		{% if containers != [] %}<ul class="nav nav-list">
+		{% if lxc_names %}<ul class="nav nav-list">
 			<li class="nav-header">Containers</li>
-			{% for c in containers %}
+			{% for c in lxc_names %}
 				<li{% if request.path=='/'+ c +'/edit' %} class="active"{% endif %}><a href="{{ url_for('edit',container=c) }}"><i class="icon-hdd"></i> {{c}}</a></li>
+			{% endfor %}
+		</ul>{% endif %}
+		{% if vm_names %}<ul class="nav nav-list">
+			<li class="nav-header">VMs</li>
+			{% for c in vm_names %}
+				<li{% if request.path=='/virsh/'+ c +'/edit' %} class="active"{% endif %}><a href="{{ url_for('vm_edit',container=c) }}"><i class="icon-hdd"></i> {{c}}</a></li>
 			{% endfor %}
 		</ul>{% endif %}
 		{% if session.su == 'Yes' %}<ul class="nav nav-list">
 			<li class="nav-header">LXC Settings</li>
 			<li{% if request.path=="/settings/lxc-net" %} class="active"{% endif %}><a href="{{ url_for('lxc_net') }}"><i class="icon-globe"></i> Networking</a></li>
 			<li{% if request.path=="/checkconfig" %} class="active"{% endif %}><a href="{{ url_for('checkconfig') }}"><i class="icon-check"></i> Check config</a></li>
+		</ul>
+		<ul class="nav nav-list">
+			<li class="nav-header">VM Settings</li>
+			<li{% if request.path=="/virsh/settings/net" %} class="active"{% endif %}><a href="{{ url_for('vm_net') }}"><i class="icon-globe"></i> Networking</a></li>
+			<li{% if request.path=="/virsh/checkconfig" %} class="active"{% endif %}><a href="{{ url_for('vm_checkconfig') }}"><i class="icon-check"></i> Check config</a></li>
 		</ul>{% endif %}
 		<ul class="nav nav-list">
 			<li class="nav-header">Panel</li>

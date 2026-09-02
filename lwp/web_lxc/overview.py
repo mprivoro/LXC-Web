@@ -1,4 +1,4 @@
-# Overview, About, and host/container AJAX used by the home dashboard.
+# LXC Overview (/) and container AJAX used by the home dashboard.
 
 import lxclite as lxc
 import lwp
@@ -141,37 +141,6 @@ def home():
     return render_template('login.html')
 
 
-def about():
-    '''About page with the local LWP version.'''
-
-    if 'logged_in' in session:
-        return render_template('about.html', containers=lxc.ls(),
-                               version=lwp.check_version())
-    return render_template('login.html')
-
-
-def refresh_cpu_host():
-    '''JSON: host CPU %, load 1/5/15, CPU count.'''
-
-    if 'logged_in' in session:
-        return jsonify(lwp.host_cpu_usage())
-
-
-def refresh_uptime_host():
-    '''JSON: host uptime days + HH:MM.'''
-
-    if 'logged_in' in session:
-        return jsonify(lwp.host_uptime())
-
-
-def refresh_disk_host():
-    '''JSON: df of the partition from lwp.conf [overview].'''
-
-    if 'logged_in' in session:
-        partition = current_app.config.get('OVERVIEW_PARTITION', '/')
-        return jsonify(lwp.host_disk_usage(partition=partition))
-
-
 def refresh_memory_containers(name=None):
     '''JSON RAM: all running CTs, the host, or one container (URL suffix).'''
 
@@ -218,17 +187,10 @@ def refresh_overview():
 
 
 def register(app):
-    '''Bind Overview, About, and /_refresh_* AJAX URLs.'''
+    '''Bind LXC Overview and container /_refresh_* AJAX URLs.'''
 
     app.add_url_rule('/', view_func=home, endpoint='home')
     app.add_url_rule('/home', view_func=home, endpoint='home')
-    app.add_url_rule('/about', view_func=about, endpoint='about')
-    app.add_url_rule('/_refresh_cpu_host', view_func=refresh_cpu_host,
-                     endpoint='refresh_cpu_host')
-    app.add_url_rule('/_refresh_uptime_host', view_func=refresh_uptime_host,
-                     endpoint='refresh_uptime_host')
-    app.add_url_rule('/_refresh_disk_host', view_func=refresh_disk_host,
-                     endpoint='refresh_disk_host')
     app.add_url_rule('/_refresh_memory_<name>',
                      view_func=refresh_memory_containers,
                      endpoint='refresh_memory_containers')

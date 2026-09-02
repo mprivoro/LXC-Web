@@ -1,6 +1,6 @@
 # LXC-Web
 
-A web panel for **classic LXC** containers — the ones you manage with `lxc-start`, `lxc-stop`, and friends.
+A web panel for **classic LXC** containers — the ones you manage with `lxc-start`, `lxc-stop`, and friends — and for **KVM/QEMU VMs** through libvirt (`virsh`).
 
 This is not a panel for LXD or Incus.
 
@@ -20,11 +20,20 @@ Open the panel in a browser and work with the containers that already live on th
 - Host overview: CPU, RAM, disk, uptime
 - A command log of who changed what (panel or MCP)
 
+## VMs
+
+The same process, same login, same MCP. The sidebar has two Overview links: **Overview LXC** (`/`) and **Overview VMs** (`/virsh`). Libvirt URI is `[vm] uri` in `lwp.conf` (default `qemu:///system`). New VM disks go under `[vm] disk` as `{disk}/{name}/{name}.qcow2` unless you set another path in the create form.
+
+- List VMs: running, paused, shut off
+- Start, ACPI shutdown, power off, pause / resume
+- Clone (`virt-clone`), define from XML, undefine (disks kept)
+- Snapshots, domain XML, serial console
+
 ## MCP
 
-The same process also speaks MCP, so an agent or IDE can manage those containers without the browser.
+The same process also speaks MCP, so an agent or IDE can manage those containers and VMs without the browser.
 
-It can list and inspect containers, read and change config, start / stop / restart / freeze, take and restore snapshots, clone, create, and destroy.
+It can list and inspect containers and VMs, read and change config/XML, start / stop / restart / freeze, take and restore snapshots, clone, create, and destroy.
 
 **How to connect**
 
@@ -41,15 +50,15 @@ It can list and inspect containers, read and change config, start / stop / resta
 }
 ```
 
-Admin tokens can change containers. A non-admin user token, or the default key in `lwp.conf`, is read-only (list and inspect only).
+Admin tokens can change containers and VMs. A non-admin user token, or the default key in `lwp.conf`, is read-only (list and inspect only).
 
-For a locally spawned client, `python3 -m lwp.mcp_server --stdio` is the stdio transport. To run only the website: `python3 lwp.py --no-mcp`.
+For a locally spawned client, `python3 -m lwp.mcp_server --stdio` is the stdio transport (LXC and virsh tools). To run only the website: `python3 lwp.py --no-mcp`.
 
 ## Users
 
 Accounts live in the panel (**Users**, admin only).
 
-- **Admin** — full UI, and an MCP token that can change containers
+- **Admin** — full UI, and an MCP token that can change containers and VMs
 - **Regular user** — signed-in access to the panel; MCP token is read-only
 
 Each user has an MCP token. It is stored hashed. Copy it when it is shown — it cannot be displayed again. Lost token: Regenerate.
@@ -58,11 +67,12 @@ Default login after install: **admin** / **admin**. Change that password.
 
 ## Install
 
-Needs a Linux host with **LXC** already working, **Python 3**, and **root** (the panel talks to the LXC store on the machine).
+Needs a Linux host with **LXC** and/or **libvirt** already working, **Python 3**, and **root**.
 
 **Host**
 
-- LXC (`lxc-*` tools)
+- LXC (`lxc-*` tools) for containers
+- libvirt / `virsh` (and `virt-clone` to clone) for the virsh Overview
 - Python 3 and pip
 - Python **3.10+** if you want MCP (the panel itself runs on 3.8+)
 
@@ -82,7 +92,7 @@ pip3 install -r requirements.txt
 python3 lwp.py
 ```
 
-Then open `http://<host>:5000/` and sign in as admin.
+Then open `http://<host>:5000/` and sign in as admin. Overview LXC is `/`; Overview VMs is `/virsh`.
 
 Bind address and port are in `lwp.conf`. Change `secret_key` on each install.
 
