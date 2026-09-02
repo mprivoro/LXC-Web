@@ -1,4 +1,4 @@
-# MCP runtime for LXC-Web: auth, HTTP/stdio, host_info.
+# MCP runtime for NoDeck: auth, HTTP/stdio, host_info.
 # LXC tools: lwp.mcp_lxc. VM tools: lwp.mcp_vm.
 # Started in a background thread by python3 lwp.py (Streamable HTTP).
 # Standalone: python3 -m lwp.mcp_server [--stdio] [--url …]
@@ -54,7 +54,7 @@ def _panel_version():
 
 
 mcp = MCPServer(
-    'LXC-Web',
+    'NoDeck',
     instructions=(
         'This host has classic LXC containers (lxc-*) and KVM/QEMU VMs '
         '(virsh / libvirt). Not LXD or Incus. '
@@ -585,7 +585,8 @@ def start_background(url, server=None, prepare=None, thread_name='lwp-mcp'):
 def main(argv=None):
     '''CLI: HTTP by default, or --stdio for a local spawned process.'''
 
-    parser = argparse.ArgumentParser(description='LXC-Web MCP server')
+    parser = argparse.ArgumentParser(
+        description='NoDeck MCP server - NoDE DEck, deduplicated')
     parser.add_argument('--stdio', action='store_true',
                         help='stdio transport (host spawns this process)')
     parser.add_argument('--url', default='',

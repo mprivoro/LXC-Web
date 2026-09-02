@@ -1,4 +1,4 @@
-# MCP tools for KVM/QEMU (virsh). Registered on the shared LXC-Web MCP server.
+# MCP tools for KVM/QEMU (virsh). Registered on the shared NoDeck MCP server.
 
 from __future__ import annotations
 

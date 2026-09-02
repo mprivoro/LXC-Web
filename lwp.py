@@ -1,9 +1,6 @@
-# LXC Python Library
-# for compatibility with LXC 0.8 and 0.9
-# on Ubuntu 12.04/12.10/13.04
-
+# NoDeck — Flask entry point (python3 lwp.py)
 # Author: Michael Privorotsky
-# https://github.com/mprivoro/LXC-Web
+# https://github.com/mprivoro/NoDeck
 
 # The MIT License (MIT)
 # Copyright (c) 2013 Antoine TANZILLI, Élie DELOUMEAU
@@ -182,10 +179,11 @@ def inject_panel():
     lxc_names, vm_names = _nav_names()
     return {
         'is_vm_panel': vm,
-        'panel_brand': 'LXC-Web',
+        'panel_brand': 'NoDeck',
+        'panel_title': 'NoDE DEck - deduplicated',
         'panel_unit': 'VM' if vm else 'container',
         'panel_units': 'VMs' if vm else 'containers',
-        'panel_tagline': 'Sign in to manage LXC containers and KVM/QEMU VMs',
+        'panel_tagline': 'A lightweight web control plane for libvirt and LXC.',
         'lxc_names': lxc_names,
         'vm_names': vm_names,
         'ep_home': 'vm_home' if vm else 'home',
@@ -256,7 +254,8 @@ if sock is not None:
 
 
 if __name__ == '__main__':
-    parser = argparse.ArgumentParser(description='LXC-Web panel')
+    parser = argparse.ArgumentParser(
+        description='NoDE DEck - deduplicated: A lightweight web control plane for libvirt and LXC.')
     parser.add_argument('-d', '--debug', action='store_true',
                         help='run with Flask debug mode (reloader and debugger)')
     parser.add_argument('--no-mcp', action='store_true',
@@ -268,5 +267,5 @@ if __name__ == '__main__':
     _start_mcp(debug)
     bind = app.config['ADDRESS']
     port = int(app.config['PORT'])
-    print('LXC-Web on http://%s:%s/' % (bind, port), file=sys.stderr)
+    print('NoDeck on http://%s:%s/' % (bind, port), file=sys.stderr)
     app.run(host=bind, port=port, debug=debug)

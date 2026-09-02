@@ -1,6 +1,6 @@
 {
   "mcpServers": {
-    "lxc-web": {
+    "nodeck": {
       "url": "http://0.0.0.0:5005/mcp"
     }
   }

@@ -6,6 +6,7 @@
   {{ super() }}
   <form action="{{ url_for('login') }}" method="POST" class="form-signin">
     <h1>{{ panel_brand }}</h1>
+    <p class="form-signin-product">{{ panel_title }}</p>
     <p class="muted">{{ panel_tagline }}</p>
     <div class="control-group">
       <label class="control-label" for="inputUsername">Username</label>

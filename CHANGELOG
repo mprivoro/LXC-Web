@@ -1,8 +1,11 @@
+The project is named **NoDeck** (NoDE DEck - deduplicated).
+Repository: https://github.com/mprivoro/NoDeck
+
 ## Version 1.0
 ## 2026-08-25
 
 Fork of [lxc-webpanel/LXC-Web-Panel](https://github.com/lxc-webpanel/LXC-Web-Panel) (archived 2020).
-Maintained independently as LXC-Web.
+Maintained independently as NoDeck (formerly LXC-Web).
 
 + Python 3 support for the panel on current Ubuntu/LXC
 + Read modern LXC config keys (`lxc.net.0.*`, `lxc.uts.name`, `lxc.rootfs.path`) as well as the old 0.8/0.9 names
@@ -16,7 +19,7 @@ Maintained independently as LXC-Web.
 
 * Version check no longer contacts lxc-webpanel.github.io; About shows the local `version` file only
 * Dropped html5shim and other third-party script URLs from templates
-* About page and footer rebranded as LXC-Web; MIT copyright for 2013 and 2026 kept in `LICENSE`
+* About page and footer rebranded; MIT copyright for 2013 and 2026 kept in `LICENSE`
 * README rewritten: clone, install, run, update, default URL and admin login
 * Removed unused `static/css/bootstrap-select.min.css` (GitHub HTML dump) and `templates/includes/modals.html`
 * Removed unused `/_check_version` route

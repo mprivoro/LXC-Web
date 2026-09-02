@@ -118,7 +118,7 @@ def action():
             try:
                 subprocess.check_output(
                     ['/sbin/shutdown', '-r', 'now',
-                     'Reboot from LXC-Web panel'],
+                     'Reboot from NoDeck panel'],
                     stderr=subprocess.STDOUT, universal_newlines=True)
                 flash(u'System will now restart!', 'success')
             except subprocess.CalledProcessError as e:

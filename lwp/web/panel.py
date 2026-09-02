@@ -25,7 +25,7 @@ def container_log():
 
 
 def about():
-    '''About page with the local LWP version.'''
+    '''About page with the local NoDeck version.'''
 
     if 'logged_in' in session:
         return render_template('about.html', version=lwp.check_version())
