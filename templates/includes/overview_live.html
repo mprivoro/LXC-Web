@@ -6,7 +6,11 @@
 {% for status in containers_all %}
 	{% if status.status == 'broken' and status.containers %}
 	<div class="alert alert-error dont-hide">
+		{% if is_vm_panel %}
+		libvirt cannot load {{ status.containers|count }} domain{{ 's' if status.containers|count != 1 else '' }}. They are listed as Broken.
+		{% else %}
 		LXC cannot load {{ status.containers|count }} container config{{ 's' if status.containers|count != 1 else '' }}. They are listed as Broken — the site stays up so you can inspect or destroy them.
+		{% endif %}
 	</div>
 	{% endif %}
 {% endfor %}
@@ -51,7 +55,7 @@
 				{% for container in status.containers %}
 				<tr class="{{ tr[status.status] }}">
 					<td class="ct-check">{% if status.status != 'broken' %}<input type="checkbox" class="ct-pick" name="name" value="{{ container.name }}">{% endif %}</td>
-					<td><a href="{{ url_for('edit',container=container.name) }}" title="Click to edit {{container.name}}">{{container.name}}</a></td>
+					<td><a href="{{ url_for(ep_edit,container=container.name) }}" title="Click to edit {{container.name}}">{{container.name}}</a></td>
 					<td>
 						{% if container.settings.utsname %}{{ container.settings.utsname }}{% endif %}
 						{% if container.error %}
@@ -66,6 +70,8 @@
 							Link Down
 						{% elif container.settings.ipv4_addrs %}
 							{% for addr in container.settings.ipv4_addrs %}<div class="ct-ip-line">{{ addr }}</div>{% endfor %}
+						{% elif container.settings.ipv4 %}
+							<div class="ct-ip-line">{{ container.settings.ipv4 }}</div>
 						{% else %}
 							<span class="muted">Undefined</span>
 						{% endif %}
@@ -96,10 +102,10 @@
 						<div class="btn-toolbar">
 							<div class="btn-group">
 								{% set start_action = {'stopped':'start','frozen':'unfreeze'} %}
-								<a class="btn btn-small{% if status.status == 'running' or status.status == 'broken' %} disabled{% endif %}"{% if status.status == 'stopped' or status.status == 'frozen' %} href="{{ url_for('action', name=container.name, action=start_action[status.status], token=session.token) }}"{% endif %}><i class="icon-play"></i> Start</a>
-								<a class="btn btn-small{% if status.status == 'stopped' or status.status == 'broken' %} disabled{% endif %}"{% if status.status == 'running' or status.status == 'frozen' %} href="{{ url_for('action', name=container.name, action='stop', token=session.token) }}"{% endif %}><i class="icon-stop"></i> Stop</a>
-								<a class="btn btn-small{% if status.status == 'frozen' or status.status == 'stopped' or status.status == 'broken' %} disabled{% endif %}"{% if status.status == 'running' %} href="{{ url_for('action', name=container.name, action='freeze', token=session.token) }}"{% endif %}><i class="icon-pause"></i> Freeze</a>
-								{% if session.su == 'Yes' and status.status == 'running' and console_available %}<a class="btn btn-small btn-inverse console-open" href="{{ url_for('container_console', container=container.name) }}" data-container-name="{{ container.name }}" title="Open attach console in a new window"><i class="icon-list-alt icon-white"></i> Console</a>{% endif %}
+								<a class="btn btn-small{% if status.status == 'running' or status.status == 'broken' %} disabled{% endif %}"{% if status.status == 'stopped' or status.status == 'frozen' %} href="{{ url_for(ep_action, name=container.name, action=start_action[status.status], token=session.token) }}"{% endif %}><i class="icon-play"></i> Start</a>
+								<a class="btn btn-small{% if status.status == 'stopped' or status.status == 'broken' %} disabled{% endif %}"{% if status.status == 'running' or status.status == 'frozen' %} href="{{ url_for(ep_action, name=container.name, action='stop', token=session.token) }}"{% endif %}><i class="icon-stop"></i> Stop</a>
+								<a class="btn btn-small{% if status.status == 'frozen' or status.status == 'stopped' or status.status == 'broken' %} disabled{% endif %}"{% if status.status == 'running' %} href="{{ url_for(ep_action, name=container.name, action='freeze', token=session.token) }}"{% endif %}><i class="icon-pause"></i> {% if is_vm_panel %}Pause{% else %}Freeze{% endif %}</a>
+								{% if session.su == 'Yes' and status.status == 'running' and console_available %}<a class="btn btn-small btn-inverse console-open" href="{{ url_for(ep_console, container=container.name) }}" data-container-name="{{ container.name }}" title="Open attach console in a new window"><i class="icon-list-alt icon-white"></i> Console</a>{% endif %}
 							</div>
 							{% if session.su == 'Yes' %}<a class="pull-right close destroy" data-container-name="{{container.name}}" style="margin-top:4px;"><i class="icon-remove-sign"></i></a>{% endif %}
 						</div>
@@ -109,7 +115,7 @@
 			</tbody>
 		</table>
 		{% else %}
-		<div class="ct-group-empty">No {{ status.status }} containers.</div>
+		<div class="ct-group-empty">No {{ status.status }} {{ panel_units }}.</div>
 		{% endif %}
 	</section>
 	{% endif %}

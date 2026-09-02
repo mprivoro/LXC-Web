@@ -67,6 +67,32 @@ def format_qty(value, decimals=0):
     return _group_thousands(str(int(round(n))))
 
 
+def cpu_color(pct):
+    '''Bootstrap class for a live CPU % bar (one core = 100).'''
+
+    if pct is None:
+        return ''
+    if pct < 25:
+        return 'success'
+    if pct < 80:
+        return 'warning'
+    return 'danger'
+
+
+def empty_live_metrics():
+    '''Placeholder CPU/net fields for a stopped or broken overview row.'''
+
+    return {
+        'cpu_pct': None,
+        'cpu_label': '',
+        'cpu_color': '',
+        'cpu_title': '',
+        'net_rx_label': '',
+        'net_tx_label': '',
+        'net_title': '',
+    }
+
+
 def format_bytes(n, per_sec=False):
     '''Compact size: whole B/KB/MB, GB with one decimal. Optional /s.'''
 

@@ -1,12 +1,12 @@
 {# Overview: host cards + container tables (running / frozen / stopped / broken). #}
 {% extends "layout.html" %}
-{% block title %}Overview{% endblock %}
+{% block title %}{% if is_vm_panel %}Overview VMs{% else %}Overview LXC{% endif %}{% endblock %}
 {% block content %}
 <div class="span9">
 	{{ super() }}
 	<div class="page-head">
 		<div>
-			<h1>Overview</h1>
+			<h1>{% if is_vm_panel %}Overview VMs{% else %}Overview LXC{% endif %}</h1>
 			<p class="page-sub">{{ dist }} host
 				<span class="ct-counts" id="ct-counts">
 				{% include "includes/overview_counts.html" %}
@@ -17,8 +17,8 @@
 			<button type="button" class="btn btn-small" id="overview-autorefresh" aria-pressed="true" title="Reload host stats and containers on an interval from lwp.conf">Auto refresh</button>
 			<button type="button" class="btn btn-small" id="overview-refresh" title="Refresh host stats and containers now"><i class="icon-refresh"></i> Refresh</button>
 			{% if session.su == 'Yes' %}
-			<a class="btn btn-small btn-success" data-toggle="modal" data-target="#createCT"><i class="icon-plus-sign icon-white"></i> Create CT</a>
-			{% if containers != [] %}<a class="btn btn-small btn-inverse" data-toggle="modal" data-target="#cloneCT"><i class="icon-repeat icon-white"></i> Clone CT</a>{% endif %}
+			<a class="btn btn-small btn-success" data-toggle="modal" data-target="#createCT"><i class="icon-plus-sign icon-white"></i> {% if is_vm_panel %}Create VM{% else %}Create CT{% endif %}</a>
+			{% if containers != [] %}<a class="btn btn-small btn-inverse" data-toggle="modal" data-target="#cloneCT"><i class="icon-repeat icon-white"></i> {% if is_vm_panel %}Clone VM{% else %}Clone CT{% endif %}</a>{% endif %}
 			<a class="btn btn-small btn-danger" data-toggle="modal" data-target="#reboot"><i class="icon-off icon-white"></i> Reboot</a>
 			{% endif %}
 		</div>
@@ -50,7 +50,7 @@
 			<div class="host-value"><span id="uptime" class="hide"></span></div>
 		</div>
 	</div>
-	<form id="bulk-ct" method="post" action="{{ url_for('bulk_action') }}">
+	<form id="bulk-ct" method="post" action="{{ url_for(ep_bulk) }}">
 		<input type="hidden" name="token" value="{{ session.token }}">
 		<div id="ct-live">
 			{% include "includes/overview_live.html" %}
@@ -60,7 +60,11 @@
 {% include "includes/modal_snapshots.html" %}
 {% if session.su == 'Yes' %}
 	{% include "includes/modal_reboot.html" %}
-	{% include "includes/modal_create.html" %}
+	{% if is_vm_panel %}
+		{% include "vm/modal_create.html" %}
+	{% else %}
+		{% include "lxc/modal_create.html" %}
+	{% endif %}
 
 	{% if containers != [] %}
 		{% include "includes/modal_clone.html" %}
@@ -126,7 +130,7 @@
 				$('#ct-live .ct-pick:checked').each(function() {
 					picked.push(this.value);
 				});
-				$.getJSON($SCRIPT_ROOT + '/_refresh_overview')
+				$.getJSON($SCRIPT_ROOT + {{ overview_refresh_path|tojson }})
 					.done(function(data) {
 						if (!data || typeof data.live !== 'string') {
 							return;
@@ -242,10 +246,11 @@
 				var token = '{{ session.token }}';
 
 				$(document).on('click', '.destroy', function(e){
-					$(".destroy-link").attr('href',"{{url_for('action', action='destroy') }}" + "&token="+ token +"&name="+ $(this).data('container-name'));
+					$(".destroy-link").attr('href',"{{ url_for(ep_action, action='destroy') }}" + "&token="+ token +"&name="+ $(this).data('container-name'));
 					$('#destroy').modal('show');
 				});
 
+				{% if not is_vm_panel %}
 				// Create CT
 				$('#advancedcreate').click(function(e){ e.preventDefault(); $('#advancedcreatediv').slideToggle(); });
 				$('#createSourceHelpBtn').click(function(e){
@@ -283,6 +288,35 @@
 							_lvm.slideUp();
 						}
 					});
+				{% else %}
+				$('#xmlcreate').click(function(e){ e.preventDefault(); $('#xmlcreatediv').slideToggle(); });
+				var diskDirty = false;
+				$('#vmDiskPath').on('input', function(){ diskDirty = true; });
+				$('#vmName').on('input', function(){
+					if (diskDirty) return;
+					var n = $.trim($(this).val());
+					var dir = $('#vmDiskPath').attr('data-dir') || '';
+					if (!n) {
+						$('#vmDiskPath').val('');
+						return;
+					}
+					$('#vmDiskPath').val(dir + '/' + n + '/' + n + '.qcow2');
+				});
+				function syncVmCpuModel(){
+					var sim = $('#vmCpuStyle').val() === 'simulate';
+					$('#vmCpuModelWrap').toggle(sim);
+					$('#vmCpuModel').prop('required', sim);
+				}
+				if ($('#vmCpuStyle').length) {
+					$('#vmCpuStyle').on('change', syncVmCpuModel);
+					syncVmCpuModel();
+				}
+				{% include "vm/net_link_js.html" %}
+				syncVmNetLink('#vmNetType', '#vmNetLink', '#vmNetLinkLabel', '#vmIpWrap');
+				$('#vmNetType, #vmNetLink').on('change', function(){
+					syncVmNetLink('#vmNetType', '#vmNetLink', '#vmNetLinkLabel', '#vmIpWrap');
+				});
+				{% endif %}
 
 					$('.modalbutton').on('click', function () {
 						$('.buttons-modal-footer').slideUp()

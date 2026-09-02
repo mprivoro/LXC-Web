@@ -12,7 +12,7 @@
 			$('#snapshotInfoBody').addClass('hide').empty();
 			$('#snapshotInfoError').addClass('hide');
 			$('#snapshotInfo').modal('show');
-			$.getJSON($SCRIPT_ROOT + '/_snapshot_info', {name: name, snap: snap})
+			$.getJSON($SCRIPT_ROOT + {{ snapshot_info_path|tojson }}, {name: name, snap: snap})
 				.done(function(data){
 					$('#snapshotInfoLoading').hide();
 					$('#snapshotInfoBody').html(

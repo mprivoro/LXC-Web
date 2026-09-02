@@ -1,0 +1,150 @@
+{# Create a VM from form presets, or paste domain XML. #}
+<div id="createCT" class="modal hide fade" tabindex="-1" role="dialog" aria-labelledby="createCTLabel" aria-hidden="true">
+	<form method="post" action="{{ url_for('vm_create') }}" style="margin:0;">
+		<div class="modal-header">
+			<button type="button" class="close" data-dismiss="modal" aria-hidden="true">×</button>
+			<h3 id="createCTLabel">Create VM</h3>
+		</div>
+		<div class="modal-body">
+			<div class="control-group">
+				<div class="controls input-prepend">
+					<span class="add-on"><i class="icon-folder-open"></i></span>
+					<input id="vmName" type="text" pattern="[A-Za-z0-9][A-Za-z0-9._-]*" placeholder="Name" name="name" required>
+				</div>
+			</div>
+			<div class="control-group">
+				<label class="control-label" for="vmVirtType">Domain type</label>
+				<div class="controls">
+					<select id="vmVirtType" name="virt_type">
+						{% for t in vm_domain_types|default(['kvm','qemu']) %}
+						<option value="{{ t }}"{% if loop.first %} selected{% endif %}>{{ t }}</option>
+						{% endfor %}
+					</select>
+				</div>
+			</div>
+			<div class="control-group">
+				<label class="control-label" for="vmMem">Memory (MB)</label>
+				<div class="controls">
+					<input id="vmMem" pattern="[0-9]+" type="number" name="memlimit" min="16" step="16" value="2048" max="{{ host_memory.total if host_memory is defined else 65536 }}">
+				</div>
+			</div>
+			<div class="control-group">
+				<label class="control-label" for="vmVcpus">vCPUs</label>
+				<div class="controls">
+					<input id="vmVcpus" pattern="[0-9]+" type="number" name="vcpus" min="1" step="1" value="2">
+				</div>
+			</div>
+			{% if vm_cpu_models %}
+			<div class="control-group">
+				<label class="control-label" for="vmCpuStyle">CPU</label>
+				<div class="controls">
+					<select id="vmCpuStyle" name="cpu_style">
+						<option value="host" selected>Host</option>
+						<option value="simulate">Simulate</option>
+					</select>
+					<span class="help-inline"><small>Host is this machine. Simulate is a named model.</small></span>
+				</div>
+			</div>
+			<div class="control-group hide" id="vmCpuModelWrap">
+				<label class="control-label" for="vmCpuModel">CPU model</label>
+				<div class="controls">
+					<select id="vmCpuModel" name="cpu_model">
+						<option value="">Select a model</option>
+						{% for m in vm_cpu_models %}
+						<option value="{{ m }}">{{ m }}</option>
+						{% endfor %}
+					</select>
+				</div>
+			</div>
+			{% else %}
+			<input type="hidden" name="cpu_style" value="host">
+			{% endif %}
+			<div class="control-group">
+				<label class="control-label" for="vmDiskPath">Disk path</label>
+				<div class="controls">
+					<input id="vmDiskPath" type="text" name="disk_path" data-dir="{{ vm_disk_dir|default('/var/lib/libvirt/images') }}" placeholder="{{ vm_disk_dir|default('/var/lib/libvirt/images') }}/&lt;name&gt;/&lt;name&gt;.qcow2">
+					<span class="help-inline"><small>File or directory. Empty uses [vm] disk in lwp.conf.</small></span>
+				</div>
+			</div>
+			<div class="control-group">
+				<label class="control-label" for="vmDisk">Disk size (GB)</label>
+				<div class="controls">
+					<input id="vmDisk" pattern="[0-9]+" type="number" name="disk_gb" min="1" step="1" value="20">
+				</div>
+			</div>
+			<div class="control-group">
+				<label class="control-label">Boot</label>
+				<div class="controls">
+					{% for dev, label in vm_boot_devices|default([('hd','Disk'),('cdrom','CD-ROM / ISO'),('network','Network (PXE)'),('fd','Floppy')]) %}
+					<label class="checkbox">
+						<input type="checkbox" name="boot" value="{{ dev }}"{% if dev == 'hd' %} checked{% endif %}> {{ label }}
+					</label>
+					{% endfor %}
+				</div>
+			</div>
+			<div class="control-group">
+				<label class="control-label" for="vmIso">ISO image</label>
+				<div class="controls">
+					<input id="vmIso" type="text" name="iso" placeholder="/path/to/image.iso">
+				</div>
+			</div>
+			{% if vm_networks and vm_bridges %}
+			<div class="control-group">
+				<label class="control-label" for="vmNetType">Network type</label>
+				<div class="controls">
+					<select id="vmNetType" name="type">
+						<option value="network" selected>network</option>
+						<option value="bridge">bridge</option>
+					</select>
+				</div>
+			</div>
+			{% elif vm_bridges %}
+			<input type="hidden" id="vmNetType" name="type" value="bridge">
+			{% else %}
+			<input type="hidden" id="vmNetType" name="type" value="network">
+			{% endif %}
+			<div class="control-group" id="vmNetLinkWrap">
+				<label class="control-label" for="vmNetLink" id="vmNetLinkLabel">Network</label>
+				<div class="controls">
+					<select id="vmNetLink" name="link" data-networks="{{ vm_networks|default([])|join(',') }}" data-bridges="{{ vm_bridges|default([])|join(',') }}" data-dhcp="{{ vm_dhcp_networks|default([])|join(',') }}" data-current="">
+						{% for net in vm_networks|default([]) %}
+						<option value="{{ net }}"{% if loop.first %} selected{% endif %}>{{ net }}</option>
+						{% endfor %}
+					</select>
+				</div>
+			</div>
+			<div class="control-group hide" id="vmIpWrap" style="display:none">
+				<label class="control-label" for="vmIp">IP address</label>
+				<div class="controls">
+					<input id="vmIp" type="text" name="ipaddress" placeholder="Undefined" disabled>
+				</div>
+			</div>
+			<div class="control-group">
+				<label class="control-label">Start at boot</label>
+				<div class="controls">
+					<label class="checkbox">
+						<input type="checkbox" name="autostart" value="True"> Autostart
+					</label>
+				</div>
+			</div>
+			<button id="xmlcreate" class="btn btn-small">Import XML instead</button>
+			<div id="xmlcreatediv" class="advanced-wrapper hide">
+				<br />
+				<p class="muted">Paste libvirt domain XML. The name field is written into <code>&lt;name&gt;</code>; UUID is stripped so libvirt allocates a new one. Form fields above are ignored when XML is pasted.</p>
+				<textarea name="xml" rows="12" class="config-editor" spellcheck="false" wrap="off" placeholder="Paste domain XML here"></textarea>
+			</div>
+		</div>
+		<div class="modal-footer">
+			<div class="buttons-modal-footer">
+				<button class="btn btn-small" data-dismiss="modal" aria-hidden="true">Close</button>
+				<button type="submit" class="btn btn-success modalbutton"><i class="icon-plus-sign icon-white"></i> Create</button>
+			</div>
+			<div class="loader-modal-footer hide">
+				<div class="progress progress-striped active">
+					<div class="bar" style="width: 100%;"></div>
+				</div>
+				<p class="text-center">This could take a while...</p>
+			</div>
+		</div>
+	</form>
+</div>

@@ -1,7 +1,7 @@
 {# Top bar: menu button, brand, logout. #}
 <header class="lwp-topbar">
 	<button type="button" class="lwp-menu" aria-label="Open menu"><span></span></button>
-	<span class="lwp-topbar-brand">LXC-Web</span>
+	<span class="lwp-topbar-brand">{{ panel_brand }}</span>
 	<span class="lwp-topbar-spacer"></span>
 	<a href="{{ url_for('logout') }}" class="lwp-logout">Logout <span class="lwp-logout-name">{% if session.name and session.name != 'None' %}{{ session.name }}{% else %}{{ session.username }}{% endif %}</span></a>
 </header>

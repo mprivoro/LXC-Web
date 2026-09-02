@@ -1,0 +1,51 @@
+{# Su-only libvirt networks. Start/stop/autostart; XML is not edited here. #}
+{% extends "layout.html" %}
+{% block title %}VM Networking{% endblock %}
+{% block content %}
+<div class="page-compact">
+	{{ super() }}
+	<div class="net-card">
+		<h3 class="head">Libvirt networks</h3>
+		<p class="page-sub">URI <code>{{ uri }}</code>. Stop is disabled while any VM is running or paused. Networks stay defined after Stop.</p>
+		{% if busy %}<p class="text-error">Shut off all VMs before stopping a network.</p>{% endif %}
+		{% if not networks %}
+		<p class="muted">No libvirt networks (or virsh could not list them).</p>
+		{% endif %}
+		{% for n in networks %}
+		<div class="vm-net">
+			<div class="vm-net-head">
+				<div>
+					<strong>{{ n.name }}</strong>
+					{% if n.active %}<span class="label label-success">active</span>{% else %}<span class="label">inactive</span>{% endif %}
+					{% if n.autostart %}<span class="label label-info">autostart</span>{% endif %}
+				</div>
+				<form method="post" action="{{ url_for('vm_net') }}" class="vm-net-actions">
+					<input type="hidden" name="token" value="{{ session.token }}">
+					<input type="hidden" name="name" value="{{ n.name }}">
+					{% if n.active %}
+					<button class="btn btn-small" type="submit" name="action" value="stop"{% if busy %} disabled{% endif %}><i class="icon-stop"></i> Stop</button>
+					{% else %}
+					<button class="btn btn-small" type="submit" name="action" value="start"><i class="icon-play"></i> Start</button>
+					{% endif %}
+					{% if n.autostart %}
+					<button class="btn btn-small" type="submit" name="action" value="autostart_off">Autostart off</button>
+					{% else %}
+					<button class="btn btn-small" type="submit" name="action" value="autostart_on">Autostart on</button>
+					{% endif %}
+				</form>
+			</div>
+			<p class="vm-net-meta">
+				{% if n.forward %}Forward: {{ n.forward }}{% endif %}
+				{% if n.bridge %} · Bridge: <code>{{ n.bridge }}</code>{% endif %}
+				{% if n.ip %} · IP: {{ n.ip }}{% if n.prefix %}/{{ n.prefix }}{% elif n.netmask %} / {{ n.netmask }}{% endif %}{% endif %}
+				{% if n.dhcp %} · DHCP: {{ n.dhcp_start }}–{{ n.dhcp_end }}{% else %} · No DHCP{% endif %}
+				{% if n.error %} · <span class="text-error">{{ n.error }}</span>{% endif %}
+			</p>
+		</div>
+		{% endfor %}
+		{% if bridges %}
+		<p class="vm-net-meta vm-net-bridges">Host bridges (for <code>type=bridge</code>): {% for b in bridges %}<code>{{ b }}</code>{% if not loop.last %}, {% endif %}{% endfor %}</p>
+		{% endif %}
+	</div>
+</div>
+{% endblock %}

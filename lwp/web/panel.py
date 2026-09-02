@@ -1,11 +1,10 @@
-# Su-only panel pages: command log, users, lxc-net, lxc-checkconfig.
+# Shared su-only pages: command log, users, about.
+# Sidebar names come from lwp.py inject_panel (lxc_names / vm_names).
 
-import lxclite as lxc
 import lwp
 import lwp.ctlog as ctlog
 from lwp.auth import hash_mcp_token, hash_passwd, new_mcp_token, query_db
-from lwp.util import (IPV4, RE_BYTE, RE_DISPLAY_NAME, RE_IFACE, RE_USERNAME,
-                      matches)
+from lwp.util import (RE_DISPLAY_NAME, RE_USERNAME, matches)
 from flask import abort, flash, g, redirect, render_template, request, session, url_for
 
 
@@ -16,79 +15,20 @@ def container_log():
         return render_template('login.html')
     if session.get('su') != 'Yes':
         return abort(403)
-    try:
-        names = lxc.ls()
-    except Exception:
-        names = []
     view = request.args.get('view', '')
     if view == 'mcp':
         log = ctlog.read_mcp_log()
     else:
         view = 'containers'
         log = ctlog.read_log()
-    return render_template('log.html', containers=names, log=log, view=view)
+    return render_template('log.html', log=log, view=view)
 
 
-def lxc_net():
-    '''GET/POST /etc/default/lxc-net (bridge DHCP). Only if no CT is running.'''
+def about():
+    '''About page with the local LWP version.'''
 
     if 'logged_in' in session:
-        if session['su'] != 'Yes':
-            return abort(403)
-
-        if request.method == 'POST':
-            if lxc.running() == []:
-                cfg = lwp.get_net_settings()
-                form = {}
-                form['use'] = request.form.get('use', 'false')
-                form['bridge'] = request.form.get('bridge')
-                form['address'] = request.form.get('address')
-                form['netmask'] = request.form.get('netmask')
-                form['network'] = request.form.get('network')
-                form['range'] = request.form.get('range')
-                form['max'] = request.form.get('max')
-
-                if form['use'] == 'true' and form['use'] != cfg['use']:
-                    lwp.push_net_value('USE_LXC_BRIDGE', 'true')
-
-                elif form['use'] == 'false' and form['use'] != cfg['use']:
-                    lwp.push_net_value('USE_LXC_BRIDGE', 'false')
-
-                if form['bridge'] and form['bridge'] != cfg['bridge'] \
-                        and matches(RE_IFACE, form['bridge']):
-                    lwp.push_net_value('LXC_BRIDGE', form['bridge'])
-
-                if form['address'] and form['address'] != cfg['address'] \
-                        and matches('^%s$' % IPV4, form['address']):
-                    lwp.push_net_value('LXC_ADDR', form['address'])
-
-                if form['netmask'] and form['netmask'] != cfg['netmask'] \
-                        and matches('^%s$' % IPV4, form['netmask']):
-                    lwp.push_net_value('LXC_NETMASK', form['netmask'])
-
-                if form['network'] and form['network'] != cfg['network'] and \
-                        matches('^%s(?:/\\d{1,2}|)$' % IPV4, form['network']):
-                    lwp.push_net_value('LXC_NETWORK', form['network'])
-
-                if form['range'] and form['range'] != cfg['range'] and \
-                        matches('^%s,%s$' % (IPV4, IPV4), form['range']):
-                    lwp.push_net_value('LXC_DHCP_RANGE', form['range'])
-
-                if form['max'] and form['max'] != cfg['max'] and \
-                        matches(RE_BYTE, form['max']):
-                    lwp.push_net_value('LXC_DHCP_MAX', form['max'])
-
-                if lwp.net_restart() == 0:
-                    flash(u'LXC Network settings applied successfully!',
-                          'success')
-                else:
-                    flash(u'Failed to restart LXC networking.', 'error')
-            else:
-                flash(u'Stop all containers before restart lxc-net.',
-                      'warning')
-        return render_template('lxc-net.html', containers=lxc.ls(),
-                               cfg=lwp.get_net_settings(),
-                               running=lxc.running())
+        return render_template('about.html', version=lwp.check_version())
     return render_template('login.html')
 
 
@@ -259,30 +199,15 @@ def lwp_users():
         su_users = query_db("SELECT COUNT(id) as num FROM users "
                             "WHERE su='Yes'", [], one=True)
 
-        return render_template('users.html', containers=lxc.ls(), users=users,
+        return render_template('users.html', users=users,
                                nb_users=nb_users, su_users=su_users)
     return render_template('login.html')
 
 
-def checkconfig():
-    '''Show output of lxc-checkconfig (kernel features).'''
-
-    if 'logged_in' in session:
-        if session['su'] != 'Yes':
-            return abort(403)
-
-        return render_template('checkconfig.html', containers=lxc.ls(),
-                               cfg=lxc.checkconfig())
-    return render_template('login.html')
-
-
-
 def register(app):
-    '''Bind /lwp/log, /lwp/users, /settings/lxc-net, /checkconfig.'''
+    '''Bind /lwp/log, /lwp/users, /about.'''
 
     app.add_url_rule('/lwp/log', view_func=container_log, endpoint='container_log')
-    app.add_url_rule('/settings/lxc-net', view_func=lxc_net, endpoint='lxc_net',
-                     methods=['GET', 'POST'])
     app.add_url_rule('/lwp/users', view_func=lwp_users, endpoint='lwp_users',
                      methods=['GET', 'POST'])
-    app.add_url_rule('/checkconfig', view_func=checkconfig, endpoint='checkconfig')
+    app.add_url_rule('/about', view_func=about, endpoint='about')

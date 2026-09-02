@@ -28,13 +28,14 @@
 # THE SOFTWARE.
 
 # Flask entry point: python3 lwp.py
-# Loads lwp.conf, builds the app, registers HTTP routes (lwp/web/) and the
-# optional WebSocket console, then app.run(). Views are not in this file.
+# Loads lwp.conf, builds the app, registers HTTP (lwp/web, web_lxc, web_vm)
+# and the optional WebSocket console, then app.run(). Views are not here.
 
 import argparse
 import os
 import sys
 
+import libvirtlite as virt
 import lxclite as lxc
 import lwp
 import lwp.ctlog as ctlog
@@ -43,7 +44,7 @@ from lwp.util import format_qty
 from lwp.web import register as register_routes
 from lwp.web.session_views import logout
 
-from flask import Flask, g
+from flask import Flask, g, request
 
 try:
     import configparser
@@ -119,6 +120,16 @@ try:
     MCP_KEY = config.get('mcp', 'key', raw=True).strip()
 except (configparser.NoSectionError, configparser.NoOptionError):
     MCP_KEY = ''
+try:
+    VM_URI = config.get('vm', 'uri').strip()
+except (configparser.NoSectionError, configparser.NoOptionError):
+    VM_URI = 'qemu:///system'
+if not VM_URI:
+    VM_URI = 'qemu:///system'
+try:
+    VM_DISK = config.get('vm', 'disk').strip()
+except (configparser.NoSectionError, configparser.NoOptionError):
+    VM_DISK = ''
 
 
 # Flask app
@@ -128,23 +139,71 @@ app.config['TEMPLATES_AUTO_RELOAD'] = True
 app.jinja_env.auto_reload = True
 app.add_template_filter(format_qty, 'qty')
 
-# Optional LXC attach console (flask-sock). If the extra is missing, the
-# panel runs exactly as before — no Console button, no WebSocket route.
+# Optional attach console (flask-sock). LXC at /console/<name>, virsh at
+# /virsh/console/<name>.
 CONSOLE_AVAILABLE = False
 try:
     from flask_sock import Sock
     app.config['SOCK_SERVER_OPTIONS'] = {'ping_interval': 20}
     sock = Sock(app)
-    from lwp.console import register_console
-    register_console(sock, lxc)
     CONSOLE_AVAILABLE = True
 except ImportError:
     sock = None
 app.config['CONSOLE_AVAILABLE'] = CONSOLE_AVAILABLE
 app.config['OVERVIEW_PARTITION'] = OVERVIEW_PARTITION
 app.config['OVERVIEW_REFRESH'] = OVERVIEW_REFRESH
+app.config['VM_URI'] = VM_URI
+app.config['VM_DISK'] = VM_DISK
+virt.init_uri(VM_URI)
+virt.init_disk_dir(VM_DISK)
 
-register_routes(app)
+
+def _nav_names():
+    '''LXC and virsh names for the sidebar (best-effort).'''
+
+    lxc_names = []
+    vm_names = []
+    try:
+        lxc_names = lxc.ls()
+    except Exception:
+        pass
+    try:
+        vm_names = virt.ls()
+    except Exception:
+        pass
+    return lxc_names, vm_names
+
+
+@app.context_processor
+def inject_panel():
+    '''Sidebar lists and LXC vs virsh template switches.'''
+
+    vm = request.path.startswith('/virsh')
+    lxc_names, vm_names = _nav_names()
+    return {
+        'is_vm_panel': vm,
+        'panel_brand': 'LXC-Web',
+        'panel_unit': 'VM' if vm else 'container',
+        'panel_units': 'VMs' if vm else 'containers',
+        'panel_tagline': 'Sign in to manage LXC containers and KVM/QEMU VMs',
+        'lxc_names': lxc_names,
+        'vm_names': vm_names,
+        'ep_home': 'vm_home' if vm else 'home',
+        'ep_edit': 'vm_edit' if vm else 'edit',
+        'ep_action': 'vm_action' if vm else 'action',
+        'ep_bulk': 'vm_bulk_action' if vm else 'bulk_action',
+        'ep_create': 'vm_create' if vm else 'create_container',
+        'ep_clone': 'vm_clone' if vm else 'clone_container',
+        'ep_snap': 'vm_take_snapshot' if vm else 'take_snapshot',
+        'ep_console': 'vm_console' if vm else 'container_console',
+        'overview_refresh_path': (
+            '/virsh/_refresh_overview' if vm else '/_refresh_overview'),
+        'snapshot_info_path': (
+            '/virsh/_snapshot_info' if vm else '/_snapshot_info'),
+        'memory_refresh_prefix': (
+            '/virsh/_refresh_memory_' if vm else '/_refresh_memory_'),
+        'console_ws_prefix': '/virsh/console' if vm else '/console',
+    }
 
 
 @app.before_request
@@ -184,6 +243,18 @@ def _start_mcp(debug):
         print('MCP server failed to start: %s' % e, file=sys.stderr)
 
 
+register_routes(app)
+if sock is not None:
+    from lwp.console import register_console
+    register_console(sock, lxc, session_prefix='lxc:')
+    uri = virt.connect_uri()
+    register_console(
+        sock, virt,
+        lambda name, uri=uri: ['virsh', '-c', uri, 'console', name],
+        path='/virsh/console/<name>',
+        session_prefix='vm:')
+
+
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='LXC-Web panel')
     parser.add_argument('-d', '--debug', action='store_true',
@@ -195,4 +266,7 @@ if __name__ == '__main__':
     if args.no_mcp:
         MCP_ENABLED = False
     _start_mcp(debug)
-    app.run(host=app.config['ADDRESS'], port=app.config['PORT'], debug=debug)
+    bind = app.config['ADDRESS']
+    port = int(app.config['PORT'])
+    print('LXC-Web on http://%s:%s/' % (bind, port), file=sys.stderr)
+    app.run(host=bind, port=port, debug=debug)

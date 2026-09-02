@@ -1,0 +1,44 @@
+{# Su-only virt-host-validate and libvirt host facts. #}
+{% extends "layout.html" %}
+{% block title %}VM Check config{% endblock %}
+{% block content %}
+<div class="page-compact">
+	{{ super() }}
+	<div class="page-head">
+		<h1>Check config</h1>
+	</div>
+	<table class="table table-hover table-bordered">
+		<tbody>
+			<tr><td>URI</td><td><code>{{ info.uri }}</code></td></tr>
+			<tr><td>Disk directory</td><td><code>{{ info.disk }}</code></td></tr>
+			<tr><td>Domain types</td><td>{% if info.types %}{{ info.types|join(', ') }}{% else %}—{% endif %}</td></tr>
+			{% if info.library %}<tr><td>Library</td><td>{{ info.library }}</td></tr>{% endif %}
+			{% if info.hypervisor %}<tr><td>Hypervisor</td><td>{{ info.hypervisor }}</td></tr>{% endif %}
+		</tbody>
+	</table>
+	{% if checks %}
+	<p class="check-legend">
+		<span class="text-success"><i class="icon-ok"></i> Pass</span>
+		<span class="text-warning"><i class="icon-warning-sign"></i> Warn</span>
+		<span class="text-error"><i class="icon-remove"></i> Fail</span>
+	</p>
+	<table class="table table-hover table-bordered">
+		<tbody>
+			{% for i in checks %}
+			<tr class="{% if i.status == 'pass' %}success{% elif i.status == 'warn' %}warning{% elif i.status == 'fail' %}error{% endif %}">
+				<td>{{ i.label }}{% if i.detail %} <small class="muted">{{ i.detail }}</small>{% endif %}</td>
+				<td class="check-icon"><i class="{% if i.status == 'pass' %}icon-ok{% elif i.status == 'warn' %}icon-warning-sign{% elif i.status == 'fail' %}icon-remove{% endif %}"></i></td>
+			</tr>
+			{% endfor %}
+		</tbody>
+	</table>
+	{% else %}
+	<div class="alert alert-error alert-block dont-hide">
+		<button type="button" class="close" data-dismiss="alert">&times;</button>
+		<h4>virt-host-validate not found</h4>
+		<p>Install libvirt clients and try again.</p>
+		<p><code>apt-get install libvirt-clients</code></p>
+	</div>
+	{% endif %}
+</div>
+{% endblock %}

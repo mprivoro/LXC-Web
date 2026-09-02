@@ -659,6 +659,9 @@ label, .control-label {
   gap: 12px;
   margin-bottom: 12px;
 }
+.form-horizontal .control-group.hide {
+  display: none !important;
+}
 .form-horizontal .control-label {
   width: 160px;
   flex: 0 0 160px;
@@ -942,6 +945,22 @@ input[type="range"] { width: 180px; max-width: 50%; }
   padding: 24px;
   box-shadow: var(--shadow);
 }
+.vm-net {
+  border-top: 1px solid var(--line);
+  padding: 16px 0 4px;
+}
+.vm-net:first-of-type { border-top: 0; padding-top: 8px; }
+.vm-net-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+.vm-net-head .label { margin-left: 6px; vertical-align: middle; }
+.vm-net-meta { color: var(--muted); font-size: 13px; margin: 6px 0 0; }
+.vm-net-bridges { margin-top: 18px; }
+.vm-net-actions { display: flex; gap: 6px; flex-wrap: wrap; margin: 0; }
 
 .log-view {
   margin: 0;
@@ -1051,6 +1070,7 @@ body.console-page #consoleTerm {
 }
 @media (max-width: 900px) {
   .form-horizontal .control-group { display: block; }
+  .form-horizontal .control-group.hide { display: none !important; }
   .form-horizontal .control-label { width: auto; flex: none; text-align: left; margin-bottom: 4px; }
   .edit-columns-split { display: block; }
   .edit-columns-split > [class*="span"] { width: 100%; margin-bottom: 16px; }

@@ -17,13 +17,13 @@
 			<button type="button" class="console-send-key" data-key="ctrl-k" tabindex="-1" title="Send Ctrl+K">^K</button>
 			<button type="button" class="console-send-key" data-key="ctrl-r" tabindex="-1" title="Send Ctrl+R">^R</button>
 			<button type="button" class="console-send-key" data-key="alt-w" tabindex="-1" title="Send Alt+W">M-W</button>
-			<span class="console-page-hint">lxc-attach</span>
+			<span class="console-page-hint">{% if is_vm_panel %}virsh console{% else %}lxc-attach{% endif %}</span>
 		</div>
-		<div id="consoleTerm" data-container-name="{{ container }}"></div>
+		<div id="consoleTerm" data-container-name="{{ container }}" data-ws-prefix="{{ console_ws_prefix }}"></div>
 		<script>var $SCRIPT_ROOT = {{ request.script_root|tojson|safe }};</script>
 		<script src="{{ url_for('static', filename='js/jquery-1.9.1.min.js') }}"></script>
 		<script src="{{ url_for('static', filename='js/xterm.js') }}"></script>
 		<script src="{{ url_for('static', filename='js/xterm-addon-fit.js') }}"></script>
-		<script src="{{ url_for('static', filename='js/lwp-console.js') }}?v=4"></script>
+		<script src="{{ url_for('static', filename='js/lwp-console.js') }}?v=5"></script>
 	</body>
 </html>
