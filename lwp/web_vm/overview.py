@@ -8,6 +8,8 @@ from flask import current_app, flash, jsonify, render_template, session
 
 
 def _overview_row(name, running=False):
+    '''One Overview row. A missing/broken domain must not raise.'''
+
     error = ''
     try:
         inf = virt.info(name)
@@ -74,6 +76,8 @@ def _overview_row(name, running=False):
 
 
 def _overview_groups(listx):
+    '''Turn virt.listx() into the containers_all structure the templates use.'''
+
     containers_all = []
     for status in ['RUNNING', 'FROZEN', 'STOPPED', 'BROKEN']:
         rows = []
@@ -101,6 +105,8 @@ def _overview_groups(listx):
 
 
 def home():
+    '''Overview: VMs by state, plus host cards. Unauthenticated -> login.'''
+
     if 'logged_in' in session:
         try:
             listx = virt.listx()
@@ -167,6 +173,8 @@ def home():
 
 
 def refresh_memory_containers(name=None):
+    '''JSON RAM: all running VMs, the host, or one domain (URL suffix).'''
+
     if 'logged_in' in session:
         if name == 'containers':
             try:
@@ -190,6 +198,8 @@ def refresh_memory_containers(name=None):
 
 
 def refresh_overview():
+    '''JSON HTML fragments: header counts + VM tables (same markup as home).'''
+
     if 'logged_in' not in session:
         return jsonify({}), 401
     try:

@@ -214,6 +214,8 @@ def _fail(exc):
 
 
 def _ok(**data):
+    '''Success dict with ok=True plus the given fields.'''
+
     data['ok'] = True
     return data
 
@@ -360,6 +362,8 @@ def _need_write():
 
 
 def _write_guard(fn):
+    '''Block mutating MCP tools unless the token is an admin user token.'''
+
     @functools.wraps(fn)
     def wrapped(*args, **kwargs):
         blocked = _need_write()

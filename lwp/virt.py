@@ -1,15 +1,16 @@
 # Libvirt helpers for the VM panel: live CPU/net, memory, settings wrapper.
 
-import os
 import time
 
 import libvirtlite as virt
-from lwp.util import cpu_color, empty_live_metrics, format_bytes, format_qty
+from lwp.util import apply_live_delta, empty_live_metrics
 
 _live_samples = {}
 
 
 def forget_live_sample(name):
+    '''Drop the last CPU/net sample (VM stopped or restarted).'''
+
     _live_samples.pop(name, None)
 
 
@@ -52,40 +53,4 @@ def vm_live_metrics(name):
     now = time.time()
     prev = _live_samples.get(name)
     _live_samples[name] = {'t': now, 'cpu': cpu, 'rx': rx, 'tx': tx}
-
-    if rx or tx:
-        out['net_rx_label'] = format_bytes(rx)
-        out['net_tx_label'] = format_bytes(tx)
-        out['net_title'] = 'Lifetime: ↓ %s  ↑ %s' % (
-            format_bytes(rx), format_bytes(tx))
-
-    if not prev:
-        return out
-    dt = now - prev['t']
-    if dt < 0.5:
-        return out
-
-    if cpu is not None and prev.get('cpu') is not None:
-        dcpu = cpu - prev['cpu']
-        if dcpu >= 0:
-            pct = (dcpu / 1e9) / dt * 100.0
-            ncpu = os.cpu_count() or 1
-            host_pct = pct / float(ncpu)
-            out['cpu_pct'] = pct
-            out['cpu_label'] = '%s%% (%s%%)' % (
-                format_qty(pct, 1), format_qty(host_pct, 1))
-            out['cpu_color'] = cpu_color(pct)
-            out['cpu_title'] = (
-                'Since last refresh. 100%% = one full core; '
-                '%s host CPUs = %s%%. '
-                'Figure in parentheses is the share of the whole host.'
-                % (ncpu, format_qty(ncpu * 100)))
-
-    drx = rx - prev['rx']
-    dtx = tx - prev['tx']
-    if drx >= 0 and dtx >= 0:
-        out['net_rx_label'] = format_bytes(drx / dt, per_sec=True)
-        out['net_tx_label'] = format_bytes(dtx / dt, per_sec=True)
-        out['net_title'] = 'Lifetime: ↓ %s  ↑ %s' % (
-            format_bytes(rx), format_bytes(tx))
-    return out
+    return apply_live_delta(out, prev, now, cpu, rx, tx, 1e9)

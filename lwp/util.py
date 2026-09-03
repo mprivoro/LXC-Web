@@ -1,6 +1,7 @@
 # Shared helpers: number formatting and form-field regexes.
 # Not LXC-specific. Used by Flask views when validating POST data.
 
+import os
 import re
 
 # Same patterns the panel already used (including unescaped '.' in IPv4).
@@ -28,6 +29,7 @@ RE_ZFS = r'^[a-zA-Z0-9_/-]+$'
 RE_FSTYPE = r'^[a-z0-9]+$'
 RE_FSSIZE = r'^[1-9][0-9]*[G|M]$'
 RE_BYTE = r'^(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)$'
+RE_VM = r'^[A-Za-z0-9][A-Za-z0-9._-]*$'
 
 
 def matches(pattern, value):
@@ -91,6 +93,57 @@ def empty_live_metrics():
         'net_tx_label': '',
         'net_title': '',
     }
+
+
+def ok_vm_name(name):
+    '''True if name is a legal libvirt domain name.'''
+
+    return bool(name and re.match(RE_VM, name))
+
+
+def apply_live_delta(out, prev, now, cpu, rx, tx, cpu_scale):
+    '''
+    Fill out (from empty_live_metrics) with CPU/net rates since prev.
+    cpu_scale is 1e6 for LXC microseconds, 1e9 for libvirt nanoseconds.
+    First sample: CPU empty, net is lifetime totals.
+    '''
+
+    if rx or tx:
+        out['net_rx_label'] = format_bytes(rx)
+        out['net_tx_label'] = format_bytes(tx)
+        out['net_title'] = 'Lifetime: ↓ %s  ↑ %s' % (
+            format_bytes(rx), format_bytes(tx))
+
+    if not prev:
+        return out
+    dt = now - prev['t']
+    if dt < 0.5:
+        return out
+
+    if cpu is not None and prev.get('cpu') is not None:
+        dcpu = cpu - prev['cpu']
+        if dcpu >= 0:
+            pct = (dcpu / cpu_scale) / dt * 100.0
+            ncpu = os.cpu_count() or 1
+            host_pct = pct / float(ncpu)
+            out['cpu_pct'] = pct
+            out['cpu_label'] = '%s%% (%s%%)' % (
+                format_qty(pct, 1), format_qty(host_pct, 1))
+            out['cpu_color'] = cpu_color(pct)
+            out['cpu_title'] = (
+                'Since last refresh. 100%% = one full core; '
+                '%s host CPUs = %s%%. '
+                'Figure in parentheses is the share of the whole host.'
+                % (ncpu, format_qty(ncpu * 100)))
+
+    drx = rx - prev['rx']
+    dtx = tx - prev['tx']
+    if drx >= 0 and dtx >= 0:
+        out['net_rx_label'] = format_bytes(drx / dt, per_sec=True)
+        out['net_tx_label'] = format_bytes(dtx / dt, per_sec=True)
+        out['net_title'] = 'Lifetime: ↓ %s  ↑ %s' % (
+            format_bytes(rx), format_bytes(tx))
+    return out
 
 
 def format_bytes(n, per_sec=False):

@@ -3,24 +3,20 @@
 import libvirtlite as virt
 import lwp
 import os
-import re
+from lwp.util import ok_vm_name
 from lwp.web.helpers import console_ok
 from flask import (abort, flash, redirect, render_template, request, session,
                    url_for)
 
-_RE_VM = re.compile(r'^[A-Za-z0-9][A-Za-z0-9._-]*$')
-
-
-def _ok_name(name):
-    return bool(name and _RE_VM.match(name))
-
 
 def container_console(container=None):
+    '''Full-page virsh console (opened in a separate window/tab).'''
+
     if 'logged_in' not in session:
         return render_template('login.html')
     if session.get('su') != 'Yes' or not console_ok():
         return abort(403)
-    if not _ok_name(container):
+    if not ok_vm_name(container):
         return abort(404)
     if not virt.exists(container):
         flash(u'VM %s does not exist!' % container, 'error')
@@ -29,9 +25,11 @@ def container_console(container=None):
 
 
 def edit(container=None):
+    '''GET: edit form. POST: save fields or the domain XML.'''
+
     if 'logged_in' not in session:
         return render_template('login.html')
-    if not _ok_name(container) or not virt.exists(container):
+    if not ok_vm_name(container) or not virt.exists(container):
         flash(u'VM %s does not exist!' % container, 'error')
         return redirect(url_for('vm_home'))
 
@@ -247,6 +245,8 @@ def edit(container=None):
 
 
 def register(app):
+    '''Bind /virsh/<container>/edit and /virsh/<container>/console.'''
+
     app.add_url_rule('/virsh/<container>/console', view_func=container_console,
                      endpoint='vm_console')
     app.add_url_rule('/virsh/<container>/edit', view_func=edit, endpoint='vm_edit',

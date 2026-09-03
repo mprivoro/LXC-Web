@@ -4,18 +4,14 @@ import subprocess
 import time
 
 import libvirtlite as virt
-import re
+from lwp.util import ok_vm_name
 from flask import (abort, flash, jsonify, redirect, render_template, request,
                    session, url_for)
 
-_RE_VM = re.compile(r'^[A-Za-z0-9][A-Za-z0-9._-]*$')
-
-
-def _ok_name(name):
-    return bool(name and _RE_VM.match(name))
-
 
 def action():
+    '''GET /virsh/action: start, stop, pause, resume, undefine, snapshot restore/delete.'''
+
     if 'logged_in' not in session:
         return render_template('login.html')
     name = request.args.get('name', '')
@@ -129,6 +125,8 @@ def action():
 
 
 def bulk_action():
+    '''POST: start or stop the selected VMs (skips broken / already there).'''
+
     if 'logged_in' not in session:
         return render_template('login.html')
     if request.form.get('token') != session.get('token'):
@@ -141,7 +139,7 @@ def bulk_action():
     ok = []
     failed = []
     for name in names:
-        if not _ok_name(name):
+        if not ok_vm_name(name):
             failed.append('%s (invalid name)' % name)
             continue
         try:
@@ -178,6 +176,8 @@ def bulk_action():
 
 
 def take_snapshot():
+    '''Create a libvirt snapshot of a domain.'''
+
     if 'logged_in' not in session:
         return render_template('login.html')
     if session['su'] != 'Yes':
@@ -204,6 +204,8 @@ def take_snapshot():
 
 
 def create_container():
+    '''POST: define a VM from form presets or pasted domain XML.'''
+
     if 'logged_in' not in session:
         return render_template('login.html')
     if session['su'] != 'Yes':
@@ -211,7 +213,7 @@ def create_container():
     if request.method == 'POST':
         name = (request.form.get('name') or '').strip()
         xml_text = (request.form.get('xml') or '').strip()
-        if not _ok_name(name):
+        if not ok_vm_name(name):
             flash(u'Invalid VM name.', 'error')
         elif xml_text:
             try:
@@ -263,6 +265,8 @@ def create_container():
 
 
 def clone_container():
+    '''POST: virt-clone into a new name.'''
+
     if 'logged_in' not in session:
         return render_template('login.html')
     if session['su'] != 'Yes':
@@ -270,7 +274,7 @@ def clone_container():
     if request.method == 'POST':
         orig = request.form.get('orig', '')
         name = (request.form.get('name') or '').strip()
-        if not _ok_name(name):
+        if not ok_vm_name(name):
             flash(u'Invalid clone name.', 'error')
         else:
             try:
@@ -287,6 +291,8 @@ def clone_container():
 
 
 def snapshot_info():
+    '''JSON details for one VM snapshot (modal on Overview/Edit).'''
+
     if 'logged_in' in session:
         name = request.args.get('name', '')
         snap = request.args.get('snap', '')
@@ -301,6 +307,8 @@ def snapshot_info():
 
 
 def register(app):
+    '''Bind /virsh/action, create/clone, take-snapshot, and snapshot AJAX.'''
+
     app.add_url_rule('/virsh/action', view_func=action, endpoint='vm_action',
                      methods=['GET'])
     app.add_url_rule('/virsh/action/bulk', view_func=bulk_action,

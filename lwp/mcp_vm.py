@@ -2,18 +2,15 @@
 
 from __future__ import annotations
 
-import re
-
 import libvirtlite as virt
 import lwp.virt as vhelp
+from lwp.util import ok_vm_name
 from lwp.mcp_server import (
     _DEST, _RO, _RW, _fail, _ok, _write_guard, ensure_runtime, mcp)
 
-_RE_VM = re.compile(r'^[A-Za-z0-9][A-Za-z0-9._-]*$')
-
 
 def _need(name):
-    if not name or not _RE_VM.match(name):
+    if not ok_vm_name(name):
         raise virt.ContainerDoesntExists('Invalid domain name.')
     if not virt.exists(name):
         raise virt.ContainerDoesntExists('Domain %s does not exist.' % name)
@@ -320,7 +317,7 @@ def clone_vm(name: str, new_name: str) -> dict:
     ensure_runtime()
     try:
         orig = _need(name)
-        if not new_name or not _RE_VM.match(new_name):
+        if not ok_vm_name(new_name):
             return {'ok': False, 'error': 'Invalid new_name.'}
         virt.clone(orig=orig, new=new_name)
         return _ok(name=new_name, cloned_from=orig)
@@ -335,7 +332,7 @@ def define_vm(name: str, xml: str) -> dict:
 
     ensure_runtime()
     try:
-        if not name or not _RE_VM.match(name):
+        if not ok_vm_name(name):
             return {'ok': False, 'error': 'Invalid name.'}
         virt.create_from_xml(name, xml)
         return _ok(name=name)
